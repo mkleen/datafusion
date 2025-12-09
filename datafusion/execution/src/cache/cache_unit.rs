@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use crate::cache::CacheAccessor;
 use crate::cache::cache_manager::{FileStatisticsCache, FileStatisticsCacheEntry};
+use crate::cache::cache_manager::{FileMetadata, FileMetadataCache};
 
 use datafusion_common::Statistics;
 

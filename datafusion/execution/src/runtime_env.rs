@@ -438,7 +438,8 @@ impl RuntimeEnvBuilder {
         let cache_config = CacheManagerConfig {
             table_files_statistics_cache: runtime_env
                 .cache_manager
-                .get_file_statistic_cache(),
+                .get_file_statistic_cache()
+            ,
             list_files_cache: runtime_env.cache_manager.get_list_files_cache(),
             list_files_cache_limit: runtime_env
                 .cache_manager

@@ -16,8 +16,8 @@
 // under the License.
 
 use crate::cache::CacheAccessor;
-use crate::cache::cache_unit::DefaultFilesMetadataCache;
 use datafusion_common::stats::Precision;
+use crate::cache::cache_unit::{DefaultFileStatisticsCache, DefaultFilesMetadataCache};
 use datafusion_common::{Result, Statistics};
 use object_store::ObjectMeta;
 use object_store::path::Path;
@@ -170,8 +170,13 @@ pub struct CacheManager {
 
 impl CacheManager {
     pub fn try_new(config: &CacheManagerConfig) -> Result<Arc<Self>> {
-        let file_statistic_cache =
-            config.table_files_statistics_cache.as_ref().map(Arc::clone);
+        let file_statistic_cache  =
+            config.table_files_statistics_cache
+                .as_ref()
+                .map(Arc::clone)
+                .unwrap_or_else(|| {
+                    Arc::new(DefaultFileStatisticsCache::default())
+                });
 
         let list_files_cache = config.list_files_cache.as_ref().map(Arc::clone);
 
@@ -187,7 +192,7 @@ impl CacheManager {
         file_metadata_cache.update_cache_limit(config.metadata_cache_limit);
 
         Ok(Arc::new(CacheManager {
-            file_statistic_cache,
+            file_statistic_cache: Some(file_statistic_cache),
             list_files_cache,
             file_metadata_cache,
         }))
