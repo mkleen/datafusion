@@ -37,7 +37,6 @@ use datafusion_datasource::{
     compute_all_files_statistics, ListingTableUrl, PartitionedFile, TableSchema,
 };
 use datafusion_execution::cache::cache_manager::FileStatisticsCache;
-use datafusion_execution::cache::cache_unit::DefaultFileStatisticsCache;
 use datafusion_expr::dml::InsertOp;
 use datafusion_expr::execution_props::ExecutionProps;
 use datafusion_expr::{Expr, TableProviderFilterPushDown, TableType};
@@ -178,7 +177,7 @@ pub struct ListingTable {
     /// The SQL definition for this table, if any
     definition: Option<String>,
     /// Cache for collected file statistics
-    collected_statistics: Arc<dyn FileStatisticsCache>,
+    collected_statistics: Option<Arc<dyn FileStatisticsCache>>,
     /// Constraints applied to this table
     constraints: Constraints,
     /// Column default expressions for columns that are not physically present in the data files
@@ -224,7 +223,7 @@ impl ListingTable {
             schema_source,
             options,
             definition: None,
-            collected_statistics: Arc::new(DefaultFileStatisticsCache::default()),
+            collected_statistics: None,
             constraints: Constraints::default(),
             column_defaults: HashMap::new(),
             schema_adapter_factory: config.schema_adapter_factory,
@@ -256,8 +255,7 @@ impl ListingTable {
     ///
     /// If `None`, creates a new [`DefaultFileStatisticsCache`] scoped to this query.
     pub fn with_cache(mut self, cache: Option<Arc<dyn FileStatisticsCache>>) -> Self {
-        self.collected_statistics =
-            cache.unwrap_or_else(|| Arc::new(DefaultFileStatisticsCache::default()));
+        self.collected_statistics = cache;
         self
     }
 
@@ -685,18 +683,40 @@ impl ListingTable {
     ///
     /// This method first checks if the statistics for the given file are already cached.
     /// If they are, it returns the cached statistics.
-    /// If they are not, it infers the statistics from the file and stores them in the cache.
+    /// If they are not, it infers the statistics from the file and stores them in the cache
+    /// if a cache is available.
     async fn do_collect_statistics(
         &self,
         ctx: &dyn Session,
         store: &Arc<dyn ObjectStore>,
         part_file: &PartitionedFile,
     ) -> datafusion_common::Result<Arc<Statistics>> {
-        match self
-            .collected_statistics
-            .get_with_extra(&part_file.object_meta.location, &part_file.object_meta)
-        {
-            Some(statistics) => Ok(statistics),
+        match &self
+            .collected_statistics {
+            Some(stats) => {
+                match stats.get_with_extra(&part_file.object_meta.location, &part_file.object_meta) {
+                    Some(statistics) => Ok(statistics),
+                    None => {
+                        let statistics = self
+                            .options
+                            .format
+                            .infer_stats(
+                                ctx,
+                                store,
+                                Arc::clone(&self.file_schema),
+                                &part_file.object_meta,
+                            )
+                            .await?;
+                        let statistics = Arc::new(statistics);
+                        stats.put_with_extra(
+                            &part_file.object_meta.location,
+                            Arc::clone(&statistics),
+                            &part_file.object_meta,
+                        );
+                        Ok(statistics)
+                    }
+                }
+            }
             None => {
                 let statistics = self
                     .options
@@ -709,11 +729,6 @@ impl ListingTable {
                     )
                     .await?;
                 let statistics = Arc::new(statistics);
-                self.collected_statistics.put_with_extra(
-                    &part_file.object_meta.location,
-                    Arc::clone(&statistics),
-                    &part_file.object_meta,
-                );
                 Ok(statistics)
             }
         }

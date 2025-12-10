@@ -260,7 +260,7 @@ async fn get_listing_table(
         .with_schema(schema);
     let table = ListingTable::try_new(config1).unwrap();
     if let Some(c) = static_cache {
-        table.with_cache(c)
+        table.with_cache(Some(c))
     } else {
         table
     }
@@ -294,6 +294,7 @@ fn get_static_cache_size(state1: &SessionState) -> usize {
         .runtime_env()
         .cache_manager
         .get_file_statistic_cache()
+        .unwrap()
         .len()
 }
 
