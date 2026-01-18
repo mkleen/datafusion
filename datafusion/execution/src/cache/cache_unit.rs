@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Duration;
 use crate::cache::CacheAccessor;
 use crate::cache::cache_manager::{CachedFileMetadata, CachedFileMetadataEntry, FileStatisticsCache, FileStatisticsCacheEntry};
 
@@ -44,42 +45,66 @@ pub struct DefaultFileStatisticsCache {
     state: Mutex<DefaultFileStatisticsCacheState>,
 }
 
-struct DefaultFileStatisticsCacheState {
+
+pub struct DefaultFileStatisticsCacheState {
+    //todo create an entry with ttl
     lru_queue: LruQueue<Path, CachedFileMetadata>,
     memory_limit: usize,
     memory_used: usize,
-    cache_hits: HashMap<Path, usize>,
+    ttl: Option<Duration>,
 }
 
-impl DefaultFileStatisticsCacheState {
-    fn new(memory_limit: usize) -> Self {
-        
+pub(super) const DEFAULT_FILES_STATISTICS_MEMORY_LIMIT: usize = 1024 * 1024; // 1MiB
+
+impl Default for DefaultFileStatisticsCacheState {
+    fn default() -> Self {
+        Self {
+            lru_queue: LruQueue::new(),
+            memory_limit: DEFAULT_FILES_STATISTICS_MEMORY_LIMIT,
+            memory_used: 0,
+            ttl: None,
+        }
     }
 }
 
 impl CacheAccessor<Path, CachedFileMetadata> for DefaultFileStatisticsCache {
+
     fn get(&self, key: &Path) -> Option<CachedFileMetadata> {
-        self.cache.get(key).map(|entry| entry.value().clone())
+        self.state
+            .lock()
+            .unwrap()
+            .lru_queue
+            .get(key)
+            .map(|entry| entry.clone())
     }
 
-    fn put(&self, key: &Path, value: CachedFileMetadata) -> Option<CachedFileMetadata> {
-        self.cache.insert(key.clone(), value)
+    fn put(&self, key: &Path, value: CachedFileMetadata
+    ) -> Option<CachedFileMetadata> {
+        //todo check for size
+        self.state
+            .lock()
+            .unwrap()
+            .lru_queue
+            .put(key.clone(), value)
     }
 
     fn remove(&self, k: &Path) -> Option<CachedFileMetadata> {
-        self.cache.remove(k).map(|(_, entry)| entry)
+        self.state
+            .lock()
+            .unwrap()
+            .lru_queue.remove(k)
     }
 
     fn contains_key(&self, k: &Path) -> bool {
-        self.cache.contains_key(k)
+        self.state.lock().unwrap().lru_queue.contains_key(k)
     }
 
     fn len(&self) -> usize {
-        self.cache.len()
+        self.state.lock().unwrap().lru_queue.len()
     }
 
     fn clear(&self) {
-        self.cache.clear();
+        self.state.lock().unwrap().lru_queue.clear();
     }
 
     fn name(&self) -> String {
@@ -91,9 +116,9 @@ impl FileStatisticsCache for DefaultFileStatisticsCache {
     fn list_entries(&self) -> HashMap<Path, FileStatisticsCacheEntry> {
         let mut entries = HashMap::<Path, FileStatisticsCacheEntry>::new();
 
-        for entry in self.cache.iter() {
-            let path = entry.key();
-            let cached = entry.value();
+        for entry in self.state.lock().unwrap().lru_queue.list_entries() {
+            let path = entry.0.clone();
+            let cached = entry.1.clone();
             entries.insert(
                 path.clone(),
                 FileStatisticsCacheEntry {
