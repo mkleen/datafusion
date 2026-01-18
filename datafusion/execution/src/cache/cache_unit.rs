@@ -16,16 +16,16 @@
 // under the License.
 
 use std::collections::HashMap;
-
+use std::sync::Mutex;
 use crate::cache::CacheAccessor;
-use crate::cache::cache_manager::{
-    CachedFileMetadata, FileStatisticsCache, FileStatisticsCacheEntry,
-};
+use crate::cache::cache_manager::{CachedFileMetadata, CachedFileMetadataEntry, FileStatisticsCache, FileStatisticsCacheEntry};
 
 use dashmap::DashMap;
 use object_store::path::Path;
 
 pub use crate::cache::DefaultFilesMetadataCache;
+use crate::cache::list_files_cache::DefaultListFilesCacheState;
+use crate::cache::lru_queue::LruQueue;
 
 /// Default implementation of [`FileStatisticsCache`]
 ///
@@ -41,7 +41,20 @@ pub use crate::cache::DefaultFilesMetadataCache;
 /// [`FileStatisticsCache`]: crate::cache::cache_manager::FileStatisticsCache
 #[derive(Default)]
 pub struct DefaultFileStatisticsCache {
-    cache: DashMap<Path, CachedFileMetadata>,
+    state: Mutex<DefaultFileStatisticsCacheState>,
+}
+
+struct DefaultFileStatisticsCacheState {
+    lru_queue: LruQueue<Path, CachedFileMetadata>,
+    memory_limit: usize,
+    memory_used: usize,
+    cache_hits: HashMap<Path, usize>,
+}
+
+impl DefaultFileStatisticsCacheState {
+    fn new(memory_limit: usize) -> Self {
+        
+    }
 }
 
 impl CacheAccessor<Path, CachedFileMetadata> for DefaultFileStatisticsCache {
