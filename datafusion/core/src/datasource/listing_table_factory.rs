@@ -476,7 +476,7 @@ mod tests {
         // Test with collect_statistics enabled
         let file_statistics_cache = Arc::new(DefaultFileStatisticsCache::default());
         let cache_config = CacheManagerConfig::default()
-            .with_files_statistics_cache(Some(file_statistics_cache.clone()));
+            .with_file_statistics_cache(Some(file_statistics_cache.clone()));
         let runtime = RuntimeEnvBuilder::new()
             .with_cache_manager(cache_config)
             .build_arc()
@@ -506,7 +506,7 @@ mod tests {
         // Test with collect_statistics disabled
         let file_statistics_cache = Arc::new(DefaultFileStatisticsCache::default());
         let cache_config = CacheManagerConfig::default()
-            .with_files_statistics_cache(Some(file_statistics_cache.clone()));
+            .with_file_statistics_cache(Some(file_statistics_cache.clone()));
         let runtime = RuntimeEnvBuilder::new()
             .with_cache_manager(cache_config)
             .build_arc()
