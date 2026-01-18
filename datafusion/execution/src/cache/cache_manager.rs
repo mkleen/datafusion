@@ -65,6 +65,10 @@ impl CachedFileMetadata {
         }
     }
 
+    pub fn heap_size(&self) -> usize {
+        self.meta.size as usize + self.statistics.heap_size()
+    }
+
     /// Check if this cached entry is still valid for the given metadata.
     ///
     /// Returns true if the file size and last modified time match.
@@ -72,6 +76,8 @@ impl CachedFileMetadata {
         self.meta.size == current_meta.size
             && self.meta.last_modified == current_meta.last_modified
     }
+
+
 }
 
 /// A cache for file statistics and orderings.
