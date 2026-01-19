@@ -18,11 +18,10 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
-use crate::cache::CacheAccessor;
+use crate::cache::{CacheAccessor};
 use crate::cache::cache_manager::{CachedFileMetadata, FileStatisticsCache, FileStatisticsCacheEntry};
 
 use object_store::path::Path;
-
 pub use crate::cache::DefaultFilesMetadataCache;
 use crate::cache::lru_queue::LruQueue;
 
@@ -73,7 +72,22 @@ impl DefaultFileStatisticsCacheState {
 
     fn put(&mut self, key: &Path, value: CachedFileMetadata
     ) -> Option<CachedFileMetadata> {
-        self.lru_queue.put(key.clone(), value)
+        let entry_size = value.heap_size();
+
+        if entry_size > self.memory_limit {
+            return None;
+        }
+
+        let old_value = self.lru_queue.put(key.clone(), value);
+        self.memory_used += entry_size;
+
+        if let Some(old_entry) = &old_value {
+            self.memory_used -= old_entry.heap_size();
+        }
+
+        self.evict_entries();
+
+        old_value
     }
 
     fn remove(&mut self, k: &Path) -> Option<CachedFileMetadata> {
@@ -91,6 +105,21 @@ impl DefaultFileStatisticsCacheState {
     fn clear(&mut self) {
         self.lru_queue.clear();
         self.memory_used = 0;
+    }
+
+    fn evict_entries(&mut self) {
+        while self.memory_used > self.memory_limit {
+            if let Some(removed) = self.lru_queue.pop() {
+                self.memory_used -= removed.1.statistics.heap_size();
+            } else {
+                // cache is empty while memory_used > memory_limit, cannot happen
+                debug_assert!(
+                    false,
+                    "cache is empty while memory_used > memory_limit, cannot happen"
+                );
+                return;
+            }
+        }
     }
 }
 
@@ -112,7 +141,6 @@ impl CacheAccessor<Path, CachedFileMetadata> for DefaultFileStatisticsCache {
     fn remove(&self, key: &Path) -> Option<CachedFileMetadata> {
         let mut state = self.state.lock().unwrap();
         state.remove(key)
-        
     }
 
     fn contains_key(&self, k: &Path) -> bool {
