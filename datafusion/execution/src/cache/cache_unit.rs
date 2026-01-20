@@ -109,7 +109,7 @@ impl DefaultFileStatisticsCacheState {
             self.memory_used -= old_entry.heap_size();
         }
 
-        self.evict_entries();
+        // self.evict_entries();
 
         old_value
     }
@@ -217,7 +217,7 @@ impl FileStatisticsCache for DefaultFileStatisticsCache {
 
         entries
     }
-    
+
 }
 
 #[cfg(test)]
