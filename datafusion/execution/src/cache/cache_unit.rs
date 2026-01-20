@@ -42,6 +42,20 @@ pub struct DefaultFileStatisticsCache {
     state: Mutex<DefaultFileStatisticsCacheState>,
 }
 
+impl DefaultFileStatisticsCache {
+    pub fn new(memory_limit: usize) -> Self {
+        Self {
+            state: Mutex::new(DefaultFileStatisticsCacheState::new(memory_limit)),
+        }
+    }
+
+    fn update_cache_limit(&self, limit: usize) {
+        let mut state = self.state.lock().unwrap();
+        state.memory_limit = limit;
+        state.evict_entries();
+    }
+}
+
 
 pub struct DefaultFileStatisticsCacheState {
     lru_queue: LruQueue<Path, CachedFileMetadata>,
@@ -63,7 +77,17 @@ impl Default for DefaultFileStatisticsCacheState {
     }
 }
 
+
 impl DefaultFileStatisticsCacheState {
+
+    fn new(memory_used: usize) -> Self {
+        Self {
+            lru_queue: LruQueue::new(),
+            memory_limit: DEFAULT_FILES_STATISTICS_MEMORY_LIMIT,
+            memory_used,
+            ttl: None,
+        }
+    }
     fn get(&mut self, key: &Path) -> Option<CachedFileMetadata> {
             self.lru_queue
             .get(key)
@@ -164,6 +188,14 @@ impl CacheAccessor<Path, CachedFileMetadata> for DefaultFileStatisticsCache {
 }
 
 impl FileStatisticsCache for DefaultFileStatisticsCache {
+    fn cache_limit(&self) -> usize {
+        todo!()
+    }
+
+    fn update_cache_limit(&self, limit: usize) {
+        todo!()
+    }
+
     fn list_entries(&self) -> HashMap<Path, FileStatisticsCacheEntry> {
         let mut entries = HashMap::<Path, FileStatisticsCacheEntry>::new();
 
@@ -177,7 +209,7 @@ impl FileStatisticsCache for DefaultFileStatisticsCache {
                     num_rows: cached.statistics.num_rows,
                     num_columns: cached.statistics.column_statistics.len(),
                     table_size_bytes: cached.statistics.total_byte_size,
-                    statistics_size_bytes: 0, // TODO: set to the real size in the future
+                    statistics_size_bytes: cached.statistics.heap_size(),
                     has_ordering: cached.ordering.is_some(),
                 },
             );
@@ -185,6 +217,7 @@ impl FileStatisticsCache for DefaultFileStatisticsCache {
 
         entries
     }
+    
 }
 
 #[cfg(test)]

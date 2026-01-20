@@ -17,7 +17,7 @@
 
 use crate::cache::CacheAccessor;
 use crate::cache::DefaultListFilesCache;
-use crate::cache::cache_unit::DefaultFilesMetadataCache;
+use crate::cache::cache_unit::{DefaultFileStatisticsCache, DefaultFilesMetadataCache, DEFAULT_FILES_STATISTICS_MEMORY_LIMIT};
 use crate::cache::list_files_cache::ListFilesEntry;
 use crate::cache::list_files_cache::TableScopedPath;
 use datafusion_common::TableReference;
@@ -98,6 +98,11 @@ impl CachedFileMetadata {
 ///
 /// See [`crate::runtime_env::RuntimeEnv`] for more details
 pub trait FileStatisticsCache: CacheAccessor<Path, CachedFileMetadata> {
+    fn cache_limit(&self) -> usize;
+
+    /// Updates the cache with a new memory limit in bytes.
+    fn update_cache_limit(&self, limit: usize);
+
     /// Retrieves the information about the entries currently cached.
     fn list_entries(&self) -> HashMap<Path, FileStatisticsCacheEntry>;
 }
@@ -336,12 +341,17 @@ pub struct CacheManager {
 
 impl CacheManager {
     pub fn try_new(config: &CacheManagerConfig) -> Result<Arc<Self>> {
-        let file_statistic_cache =
-            config.table_files_statistics_cache.as_ref().map(Arc::clone);
+        let file_statistic_cache: Option<Arc<dyn FileStatisticsCache>> = config
+            .table_files_statistics_cache
+            .as_ref()
+            .map(Arc::clone)
+            .or_else(|| Some(Arc::new(DefaultFileStatisticsCache::new(config.metadata_cache_limit)))
+            );
+
 
         let list_files_cache = match &config.list_files_cache {
             Some(lfc) if config.list_files_cache_limit > 0 => {
-                // the cache memory limit or ttl might have changed, ensure they are updated
+                //The cache memory limit or ttl might have changed, ensure they are updated
                 lfc.update_cache_limit(config.list_files_cache_limit);
                 // Only update TTL if explicitly set in config, otherwise preserve the cache's existing TTL
                 if let Some(ttl) = config.list_files_cache_ttl {
@@ -377,7 +387,12 @@ impl CacheManager {
         }))
     }
 
-    /// Get the cache of listing files statistics.
+    /// Get the memory limit of the files statistics cache.
+    pub fn get_file_statistic_cache_limit(&self) -> Option<usize> {
+        self.file_statistic_cache.clone().map(|x|x.cache_limit())
+    }
+
+    /// Get the file statistics cache.
     pub fn get_file_statistic_cache(&self) -> Option<Arc<dyn FileStatisticsCache>> {
         self.file_statistic_cache.clone()
     }
@@ -386,6 +401,7 @@ impl CacheManager {
     pub fn get_list_files_cache(&self) -> Option<Arc<dyn ListFilesCache>> {
         self.list_files_cache.clone()
     }
+
 
     /// Get the memory limit of the list files cache.
     pub fn get_list_files_cache_limit(&self) -> usize {
@@ -408,6 +424,7 @@ impl CacheManager {
     pub fn get_metadata_cache_limit(&self) -> usize {
         self.file_metadata_cache.cache_limit()
     }
+
 }
 
 pub const DEFAULT_METADATA_CACHE_LIMIT: usize = 50 * 1024 * 1024; // 50M
@@ -418,6 +435,8 @@ pub struct CacheManagerConfig {
     /// Enabling the cache avoids repeatedly reading file statistics in a DataFusion session.
     /// Default is disabled. Currently only Parquet files are supported.
     pub table_files_statistics_cache: Option<Arc<dyn FileStatisticsCache>>,
+    /// Limit of the file-embedded metadata cache, in bytes.
+    pub table_files_statistics_cache_limit: usize,
     /// Enable caching of file metadata when listing files.
     /// Enabling the cache avoids repeat list and object metadata fetch operations, which may be
     /// expensive in certain situations (e.g. remote object storage), for objects under paths that
@@ -444,6 +463,7 @@ impl Default for CacheManagerConfig {
     fn default() -> Self {
         Self {
             table_files_statistics_cache: Default::default(),
+            table_files_statistics_cache_limit: DEFAULT_FILES_STATISTICS_MEMORY_LIMIT,
             list_files_cache: Default::default(),
             list_files_cache_limit: DEFAULT_LIST_FILES_CACHE_MEMORY_LIMIT,
             list_files_cache_ttl: DEFAULT_LIST_FILES_CACHE_TTL,

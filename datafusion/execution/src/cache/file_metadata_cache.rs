@@ -164,6 +164,7 @@ impl DefaultFilesMetadataCache {
     }
 }
 
+
 impl CacheAccessor<Path, CachedFileMetadataEntry> for DefaultFilesMetadataCache {
     fn get(&self, key: &Path) -> Option<CachedFileMetadataEntry> {
         let mut state = self.state.lock().unwrap();
