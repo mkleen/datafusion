@@ -37,9 +37,16 @@ use crate::cache::lru_queue::LruQueue;
 /// Uses DashMap for lock-free concurrent access.
 ///
 /// [`FileStatisticsCache`]: crate::cache::cache_manager::FileStatisticsCache
-#[derive(Default)]
 pub struct DefaultFileStatisticsCache {
     state: Mutex<DefaultFileStatisticsCacheState>,
+}
+
+impl Default for DefaultFileStatisticsCache {
+    fn default() -> Self {
+        Self {
+            state: Mutex::new(DefaultFileStatisticsCacheState::default())
+        }
+    }
 }
 
 impl DefaultFileStatisticsCache {
@@ -189,11 +196,14 @@ impl CacheAccessor<Path, CachedFileMetadata> for DefaultFileStatisticsCache {
 
 impl FileStatisticsCache for DefaultFileStatisticsCache {
     fn cache_limit(&self) -> usize {
-        todo!()
+        let state = self.state.lock().unwrap();
+        state.memory_limit
     }
 
     fn update_cache_limit(&self, limit: usize) {
-        todo!()
+        let mut state = self.state.lock().unwrap();
+        state.memory_limit = limit;
+        state.evict_entries();
     }
 
     fn list_entries(&self) -> HashMap<Path, FileStatisticsCacheEntry> {
@@ -254,7 +264,7 @@ mod tests {
     #[test]
     fn test_statistics_cache() {
         let meta = create_test_meta("test", 1024);
-        let cache = DefaultFileStatisticsCache::default();
+        let cache = DefaultFileStatisticsCache::new(1024);
 
         let schema = Schema::new(vec![Field::new(
             "test_column",
@@ -356,7 +366,7 @@ mod tests {
     #[test]
     fn test_ordering_cache() {
         let meta = create_test_meta("test.parquet", 100);
-        let cache = DefaultFileStatisticsCache::default();
+        let cache = DefaultFileStatisticsCache::new(1024);
 
         let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
 
@@ -389,7 +399,7 @@ mod tests {
 
     #[test]
     fn test_cache_invalidation_on_file_modification() {
-        let cache = DefaultFileStatisticsCache::default();
+        let cache = DefaultFileStatisticsCache::new(1024);
         let path = Path::from("test.parquet");
         let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
 
@@ -425,7 +435,7 @@ mod tests {
 
     #[test]
     fn test_ordering_cache_invalidation_on_file_modification() {
-        let cache = DefaultFileStatisticsCache::default();
+        let cache = DefaultFileStatisticsCache::new(1024);
         let path = Path::from("test.parquet");
         let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
 
@@ -487,7 +497,7 @@ mod tests {
 
     #[test]
     fn test_list_entries() {
-        let cache = DefaultFileStatisticsCache::default();
+        let cache = DefaultFileStatisticsCache::new(1024);
         let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
 
         let meta1 = create_test_meta("test1.parquet", 100);

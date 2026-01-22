@@ -188,7 +188,7 @@ pub struct ListingTable {
     /// The SQL definition for this table, if any
     definition: Option<String>,
     /// Cache for collected file statistics
-    collected_statistics: Arc<dyn FileStatisticsCache>,
+    collected_statistics: Option<Arc<dyn FileStatisticsCache>>,
     /// Constraints applied to this table
     constraints: Constraints,
     /// Column default expressions for columns that are not physically present in the data files
@@ -232,7 +232,7 @@ impl ListingTable {
             schema_source,
             options,
             definition: None,
-            collected_statistics: Arc::new(DefaultFileStatisticsCache::default()),
+            collected_statistics: None,
             constraints: Constraints::default(),
             column_defaults: HashMap::new(),
             expr_adapter_factory: config.expr_adapter_factory,
@@ -263,8 +263,7 @@ impl ListingTable {
     ///
     /// If `None`, creates a new [`DefaultFileStatisticsCache`] scoped to this query.
     pub fn with_cache(mut self, cache: Option<Arc<dyn FileStatisticsCache>>) -> Self {
-        self.collected_statistics =
-            cache.unwrap_or_else(|| Arc::new(DefaultFileStatisticsCache::default()));
+        self.collected_statistics = cache;
         self
     }
 
@@ -810,11 +809,13 @@ impl ListingTable {
         let meta = &part_file.object_meta;
 
         // Check cache first - if we have valid cached statistics and ordering
-        if let Some(cached) = self.collected_statistics.get(path)
-            && cached.is_valid_for(meta)
-        {
-            // Return cached statistics and ordering
-            return Ok((Arc::clone(&cached.statistics), cached.ordering.clone()));
+        if let Some(cache) = &self.collected_statistics {
+            if let Some(cached) = cache.get(path)
+                && cached.is_valid_for(meta)
+            {
+                // Return cached statistics and ordering
+                return Ok((Arc::clone(&cached.statistics), cached.ordering.clone()));
+            }
         }
 
         // Cache miss or invalid: fetch both statistics and ordering in a single metadata read
@@ -827,14 +828,16 @@ impl ListingTable {
         let statistics = Arc::new(file_meta.statistics);
 
         // Store in cache
-        self.collected_statistics.put(
-            path,
-            CachedFileMetadata::new(
-                meta.clone(),
-                Arc::clone(&statistics),
-                file_meta.ordering.clone(),
-            ),
-        );
+        if let Some(cache) = &self.collected_statistics {
+            cache.put(
+                path,
+                CachedFileMetadata::new(
+                    meta.clone(),
+                    Arc::clone(&statistics),
+                    file_meta.ordering.clone(),
+                ),
+            );
+        }
 
         Ok((statistics, file_meta.ordering))
     }
