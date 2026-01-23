@@ -478,7 +478,9 @@ impl RuntimeEnvBuilder {
             table_files_statistics_cache: runtime_env
                 .cache_manager
                 .get_file_statistic_cache(),
-            table_files_statistics_cache_limit: runtime_env.cache_manager.get_file_statistic_cache_limit().unwrap(),
+            table_files_statistics_cache_limit: runtime_env
+                .cache_manager
+                .get_file_statistic_cache_limit(),
             list_files_cache: runtime_env.cache_manager.get_list_files_cache(),
             list_files_cache_limit: runtime_env
                 .cache_manager

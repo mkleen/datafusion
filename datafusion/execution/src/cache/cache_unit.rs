@@ -24,6 +24,7 @@ use crate::cache::cache_manager::{CachedFileMetadata, FileStatisticsCache, FileS
 use object_store::path::Path;
 pub use crate::cache::DefaultFilesMetadataCache;
 use crate::cache::lru_queue::LruQueue;
+use datafusion_common::heap_size::HeapSize;
 
 /// Default implementation of [`FileStatisticsCache`]
 ///
@@ -84,7 +85,6 @@ impl Default for DefaultFileStatisticsCacheState {
     }
 }
 
-
 impl DefaultFileStatisticsCacheState {
 
     fn new(memory_used: usize) -> Self {
@@ -96,9 +96,7 @@ impl DefaultFileStatisticsCacheState {
         }
     }
     fn get(&mut self, key: &Path) -> Option<CachedFileMetadata> {
-            self.lru_queue
-            .get(key)
-            .map(|entry| entry.clone())
+            self.lru_queue.get(key).map(|entry| entry.clone())
     }
 
     fn put(&mut self, key: &Path, value: CachedFileMetadata
@@ -153,18 +151,13 @@ impl DefaultFileStatisticsCacheState {
         }
     }
 }
-
-
-
 impl CacheAccessor<Path, CachedFileMetadata> for DefaultFileStatisticsCache {
-
     fn get(&self, key: &Path) -> Option<CachedFileMetadata> {
         let mut state = self.state.lock().unwrap();
         state.get(key)
     }
 
-    fn put(&self, key: &Path, value: CachedFileMetadata
-    ) -> Option<CachedFileMetadata> {
+    fn put(&self, key: &Path, value: CachedFileMetadata) -> Option<CachedFileMetadata> {
         let mut state = self.state.lock().unwrap();
         state.put(key, value)
     }
@@ -227,7 +220,6 @@ impl FileStatisticsCache for DefaultFileStatisticsCache {
 
         entries
     }
-
 }
 
 #[cfg(test)]
@@ -264,7 +256,7 @@ mod tests {
     #[test]
     fn test_statistics_cache() {
         let meta = create_test_meta("test", 1024);
-        let cache = DefaultFileStatisticsCache::new(1024);
+        let cache = DefaultFileStatisticsCache::default();
 
         let schema = Schema::new(vec![Field::new(
             "test_column",
@@ -366,7 +358,7 @@ mod tests {
     #[test]
     fn test_ordering_cache() {
         let meta = create_test_meta("test.parquet", 100);
-        let cache = DefaultFileStatisticsCache::new(1024);
+        let cache = DefaultFileStatisticsCache::default();
 
         let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
 
@@ -399,7 +391,7 @@ mod tests {
 
     #[test]
     fn test_cache_invalidation_on_file_modification() {
-        let cache = DefaultFileStatisticsCache::new(1024);
+        let cache = DefaultFileStatisticsCache::default();
         let path = Path::from("test.parquet");
         let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
 
@@ -435,7 +427,7 @@ mod tests {
 
     #[test]
     fn test_ordering_cache_invalidation_on_file_modification() {
-        let cache = DefaultFileStatisticsCache::new(1024);
+        let cache = DefaultFileStatisticsCache::default();
         let path = Path::from("test.parquet");
         let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
 
@@ -497,7 +489,7 @@ mod tests {
 
     #[test]
     fn test_list_entries() {
-        let cache = DefaultFileStatisticsCache::new(1024);
+        let cache = DefaultFileStatisticsCache::default();
         let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
 
         let meta1 = create_test_meta("test1.parquet", 100);
@@ -527,7 +519,7 @@ mod tests {
                         num_rows: Precision::Absent,
                         num_columns: 1,
                         table_size_bytes: Precision::Absent,
-                        statistics_size_bytes: 0,
+                        statistics_size_bytes: 72,
                         has_ordering: false,
                     }
                 ),
@@ -538,7 +530,7 @@ mod tests {
                         num_rows: Precision::Absent,
                         num_columns: 1,
                         table_size_bytes: Precision::Absent,
-                        statistics_size_bytes: 0,
+                        statistics_size_bytes: 72,
                         has_ordering: true,
                     }
                 ),

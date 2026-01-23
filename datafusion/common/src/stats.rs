@@ -321,10 +321,6 @@ impl Statistics {
         }
     }
 
-    pub fn heap_size(&self) -> usize {
-        0
-    }
-
     /// Calculates `total_byte_size` based on the schema and `num_rows`.
     /// If any of the columns has non-primitive width, `total_byte_size` is set to inexact.
     pub fn calculate_total_byte_size(&mut self, schema: &Schema) {

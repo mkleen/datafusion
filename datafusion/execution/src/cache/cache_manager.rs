@@ -32,6 +32,7 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
+use datafusion_common::heap_size::HeapSize;
 
 pub use super::list_files_cache::{
     DEFAULT_LIST_FILES_CACHE_MEMORY_LIMIT, DEFAULT_LIST_FILES_CACHE_TTL,
@@ -76,8 +77,6 @@ impl CachedFileMetadata {
         self.meta.size == current_meta.size
             && self.meta.last_modified == current_meta.last_modified
     }
-
-
 }
 
 /// A cache for file statistics and orderings.
@@ -341,6 +340,7 @@ pub struct CacheManager {
 
 impl CacheManager {
     pub fn try_new(config: &CacheManagerConfig) -> Result<Arc<Self>> {
+        //TODO don't provide cache if limit = 0
         let file_statistic_cache: Option<Arc<dyn FileStatisticsCache>> = config
             .table_files_statistics_cache
             .as_ref()
@@ -351,7 +351,7 @@ impl CacheManager {
 
         let list_files_cache = match &config.list_files_cache {
             Some(lfc) if config.list_files_cache_limit > 0 => {
-                //The cache memory limit or ttl might have changed, ensure they are updated
+                // the cache memory limit or ttl might have changed, ensure they are updated
                 lfc.update_cache_limit(config.list_files_cache_limit);
                 // Only update TTL if explicitly set in config, otherwise preserve the cache's existing TTL
                 if let Some(ttl) = config.list_files_cache_ttl {
@@ -388,8 +388,10 @@ impl CacheManager {
     }
 
     /// Get the memory limit of the files statistics cache.
-    pub fn get_file_statistic_cache_limit(&self) -> Option<usize> {
-        self.file_statistic_cache.clone().map(|x|x.cache_limit())
+    pub fn get_file_statistic_cache_limit(&self) -> usize {
+        self.file_statistic_cache
+            .as_ref()
+            .map_or(0, |c| c.cache_limit())
     }
 
     /// Get the file statistics cache.
@@ -401,7 +403,6 @@ impl CacheManager {
     pub fn get_list_files_cache(&self) -> Option<Arc<dyn ListFilesCache>> {
         self.list_files_cache.clone()
     }
-
 
     /// Get the memory limit of the list files cache.
     pub fn get_list_files_cache_limit(&self) -> usize {
@@ -424,7 +425,6 @@ impl CacheManager {
     pub fn get_metadata_cache_limit(&self) -> usize {
         self.file_metadata_cache.cache_limit()
     }
-
 }
 
 pub const DEFAULT_METADATA_CACHE_LIMIT: usize = 50 * 1024 * 1024; // 50M
@@ -435,7 +435,7 @@ pub struct CacheManagerConfig {
     /// Enabling the cache avoids repeatedly reading file statistics in a DataFusion session.
     /// Default is disabled. Currently only Parquet files are supported.
     pub table_files_statistics_cache: Option<Arc<dyn FileStatisticsCache>>,
-    /// Limit of the file-embedded metadata cache, in bytes.
+    /// Limit of the file statistics cache, in bytes. Default: 1MiB.
     pub table_files_statistics_cache_limit: usize,
     /// Enable caching of file metadata when listing files.
     /// Enabling the cache avoids repeat list and object metadata fetch operations, which may be

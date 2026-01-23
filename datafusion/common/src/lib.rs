@@ -62,6 +62,8 @@ pub mod test_util;
 pub mod tree_node;
 pub mod types;
 pub mod utils;
+pub mod heap_size;
+
 /// Reexport arrow crate
 pub use arrow;
 pub use column::Column;
