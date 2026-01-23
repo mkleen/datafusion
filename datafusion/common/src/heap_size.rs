@@ -49,15 +49,15 @@ impl HeapSize for Statistics {
         self.num_rows.heap_size()
             + self.total_byte_size.heap_size()
             + self
-            .column_statistics
-            .iter()
-            .map(|x| x.heap_size())
-            .sum::<usize>()
+                .column_statistics
+                .iter()
+                .map(|s| s.heap_size())
+                .sum::<usize>()
     }
 }
 
 impl<T: Debug + Clone + PartialEq + Eq + PartialOrd + HeapSize> HeapSize
-for Precision<T>
+    for Precision<T>
 {
     fn heap_size(&self) -> usize {
         self.get_value().map_or_else(|| 0, |v| v.heap_size())

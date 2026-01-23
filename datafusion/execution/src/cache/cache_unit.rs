@@ -15,16 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use crate::cache::CacheAccessor;
+use crate::cache::cache_manager::{
+    CachedFileMetadata, FileStatisticsCache, FileStatisticsCacheEntry,
+};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::Duration;
-use crate::cache::{CacheAccessor};
-use crate::cache::cache_manager::{CachedFileMetadata, FileStatisticsCache, FileStatisticsCacheEntry};
 
-use object_store::path::Path;
 pub use crate::cache::DefaultFilesMetadataCache;
 use crate::cache::lru_queue::LruQueue;
 use datafusion_common::heap_size::HeapSize;
+use object_store::path::Path;
 
 /// Default implementation of [`FileStatisticsCache`]
 ///
@@ -45,7 +46,7 @@ pub struct DefaultFileStatisticsCache {
 impl Default for DefaultFileStatisticsCache {
     fn default() -> Self {
         Self {
-            state: Mutex::new(DefaultFileStatisticsCacheState::default())
+            state: Mutex::new(DefaultFileStatisticsCacheState::default()),
         }
     }
 }
@@ -56,20 +57,12 @@ impl DefaultFileStatisticsCache {
             state: Mutex::new(DefaultFileStatisticsCacheState::new(memory_limit)),
         }
     }
-
-    fn update_cache_limit(&self, limit: usize) {
-        let mut state = self.state.lock().unwrap();
-        state.memory_limit = limit;
-        state.evict_entries();
-    }
 }
-
 
 pub struct DefaultFileStatisticsCacheState {
     lru_queue: LruQueue<Path, CachedFileMetadata>,
     memory_limit: usize,
     memory_used: usize,
-    ttl: Option<Duration>,
 }
 
 pub(super) const DEFAULT_FILES_STATISTICS_MEMORY_LIMIT: usize = 1024 * 1024; // 1MiB
@@ -80,26 +73,26 @@ impl Default for DefaultFileStatisticsCacheState {
             lru_queue: LruQueue::new(),
             memory_limit: DEFAULT_FILES_STATISTICS_MEMORY_LIMIT,
             memory_used: 0,
-            ttl: None,
         }
     }
 }
 
 impl DefaultFileStatisticsCacheState {
-
-    fn new(memory_used: usize) -> Self {
+    fn new(memory_limit: usize) -> Self {
         Self {
             lru_queue: LruQueue::new(),
-            memory_limit: DEFAULT_FILES_STATISTICS_MEMORY_LIMIT,
-            memory_used,
-            ttl: None,
+            memory_limit,
+            memory_used: 0,
         }
     }
     fn get(&mut self, key: &Path) -> Option<CachedFileMetadata> {
-            self.lru_queue.get(key).map(|entry| entry.clone())
+        self.lru_queue.get(key).cloned()
     }
 
-    fn put(&mut self, key: &Path, value: CachedFileMetadata
+    fn put(
+        &mut self,
+        key: &Path,
+        value: CachedFileMetadata,
     ) -> Option<CachedFileMetadata> {
         let entry_size = value.heap_size();
 

@@ -36,7 +36,6 @@ use datafusion_datasource::{
 };
 use datafusion_execution::cache::TableScopedPath;
 use datafusion_execution::cache::cache_manager::FileStatisticsCache;
-use datafusion_execution::cache::cache_unit::DefaultFileStatisticsCache;
 use datafusion_expr::dml::InsertOp;
 use datafusion_expr::execution_props::ExecutionProps;
 use datafusion_expr::{Expr, TableProviderFilterPushDown, TableType};

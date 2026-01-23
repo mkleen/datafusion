@@ -47,6 +47,7 @@ pub mod error;
 pub mod file_options;
 pub mod format;
 pub mod hash_utils;
+pub mod heap_size;
 pub mod instant;
 pub mod metadata;
 pub mod nested_struct;
@@ -62,7 +63,6 @@ pub mod test_util;
 pub mod tree_node;
 pub mod types;
 pub mod utils;
-pub mod heap_size;
 
 /// Reexport arrow crate
 pub use arrow;

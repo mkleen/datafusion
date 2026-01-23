@@ -17,10 +17,14 @@
 
 use crate::cache::CacheAccessor;
 use crate::cache::DefaultListFilesCache;
-use crate::cache::cache_unit::{DefaultFileStatisticsCache, DefaultFilesMetadataCache, DEFAULT_FILES_STATISTICS_MEMORY_LIMIT};
+use crate::cache::cache_unit::{
+    DEFAULT_FILES_STATISTICS_MEMORY_LIMIT, DefaultFileStatisticsCache,
+    DefaultFilesMetadataCache,
+};
 use crate::cache::list_files_cache::ListFilesEntry;
 use crate::cache::list_files_cache::TableScopedPath;
 use datafusion_common::TableReference;
+use datafusion_common::heap_size::HeapSize;
 use datafusion_common::stats::Precision;
 use datafusion_common::{Result, Statistics};
 use datafusion_physical_expr_common::sort_expr::LexOrdering;
@@ -32,7 +36,6 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
-use datafusion_common::heap_size::HeapSize;
 
 pub use super::list_files_cache::{
     DEFAULT_LIST_FILES_CACHE_MEMORY_LIMIT, DEFAULT_LIST_FILES_CACHE_TTL,
@@ -340,14 +343,20 @@ pub struct CacheManager {
 
 impl CacheManager {
     pub fn try_new(config: &CacheManagerConfig) -> Result<Arc<Self>> {
-        //TODO don't provide cache if limit = 0
-        let file_statistic_cache: Option<Arc<dyn FileStatisticsCache>> = config
-            .table_files_statistics_cache
-            .as_ref()
-            .map(Arc::clone)
-            .or_else(|| Some(Arc::new(DefaultFileStatisticsCache::new(config.metadata_cache_limit)))
-            );
 
+        let file_statistic_cache= match &config.table_files_statistics_cache {
+            Some(fsc) if config.list_files_cache_limit > 0 => {
+                fsc.update_cache_limit(config.list_files_cache_limit);
+                Some(Arc::clone(fsc))
+            }
+            None if config.list_files_cache_limit > 0 => {
+                let fsc: Arc<dyn FileStatisticsCache> = Arc::new(DefaultFileStatisticsCache::new(
+                    config.list_files_cache_limit
+                ));
+                Some(fsc)
+            }
+            _ => None,
+        };
 
         let list_files_cache = match &config.list_files_cache {
             Some(lfc) if config.list_files_cache_limit > 0 => {
