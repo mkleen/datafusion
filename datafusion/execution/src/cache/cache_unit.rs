@@ -24,7 +24,7 @@ use std::sync::Mutex;
 
 pub use crate::cache::DefaultFilesMetadataCache;
 use crate::cache::lru_queue::LruQueue;
-use datafusion_common::heap_size::HeapSize;
+use datafusion_common::heap_size::DFHeapSize;
 use object_store::path::Path;
 
 /// Default implementation of [`FileStatisticsCache`]
@@ -107,7 +107,7 @@ impl DefaultFileStatisticsCacheState {
             self.memory_used -= old_entry.heap_size();
         }
 
-        // self.evict_entries();
+        self.evict_entries();
 
         old_value
     }
@@ -222,10 +222,10 @@ mod tests {
     use crate::cache::cache_manager::{
         CachedFileMetadata, FileStatisticsCache, FileStatisticsCacheEntry,
     };
-    use arrow::array::RecordBatch;
+    use arrow::array::{Int32Array, ListArray, RecordBatch};
     use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
     use chrono::DateTime;
-    use datafusion_common::Statistics;
+    use datafusion_common::{ColumnStatistics, ScalarValue, Statistics};
     use datafusion_common::stats::Precision;
     use datafusion_expr::ColumnarValue;
     use datafusion_physical_expr_common::physical_expr::PhysicalExpr;
@@ -233,6 +233,7 @@ mod tests {
     use object_store::ObjectMeta;
     use object_store::path::Path;
     use std::sync::Arc;
+    use arrow::buffer::{OffsetBuffer, ScalarBuffer};
 
     fn create_test_meta(path: &str, size: u64) -> ObjectMeta {
         ObjectMeta {
@@ -529,5 +530,47 @@ mod tests {
                 ),
             ])
         );
+    }
+
+    #[test]
+    fn test_limit() {
+
+        let values = Int32Array::from(vec![0, 1, 2, 3, 4, 5, 6, 7]);
+        let offsets = OffsetBuffer::new(ScalarBuffer::from(vec![0, 3, 6, 8]));
+        let field = Arc::new(Field::new_list_field(DataType::Int32, false));
+        let list_array = ListArray::new(field, offsets, Arc::new(values), None);
+
+        let column_statistics = ColumnStatistics {
+            null_count: Precision::Exact(1),
+            max_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
+            min_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
+            sum_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
+            distinct_count: Precision::Exact(100),
+            byte_size: Precision::Exact(800),
+        };
+
+        let stats = Statistics {
+            num_rows: Precision::Exact(100),
+            total_byte_size: Precision::Exact(100),
+            column_statistics: vec![column_statistics.clone()],
+        };
+
+        let meta_1 = create_test_meta("test1.parquet", stats.heap_size() as u64);
+        let value = CachedFileMetadata::new(
+            meta_1.clone(),
+            Arc::new(stats.clone()),
+            None,
+        );
+
+        // create a cache with exactly the size
+        let cache = DefaultFileStatisticsCache::new(value.heap_size());
+
+        cache.put(&meta_1.location, value);
+        let result = cache.get(&meta_1.location).unwrap();
+        assert_eq!(result., value)
+        
+
+
+
     }
 }

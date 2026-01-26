@@ -28,6 +28,8 @@ use half::f16;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
+use chrono::{DateTime, Utc};
+
 /// Since HeapSize is private in arrow-rs this code is taken over
 /// from <https://github.com/apache/arrow-rs/blob/main/parquet/src/file/metadata/memory.rs>
 /// and extended to provide heap size estimation for Statistics. This needs to be cleaned
@@ -35,7 +37,7 @@ use std::sync::Arc;
 ///
 ///
 /// Trait for calculating the size of various containers
-pub trait HeapSize {
+pub trait DFHeapSize {
     /// Return the size of any bytes allocated on the heap by this object,
     /// including heap memory in those structures
     ///
@@ -44,7 +46,8 @@ pub trait HeapSize {
     fn heap_size(&self) -> usize;
 }
 
-impl HeapSize for Statistics {
+
+impl DFHeapSize for Statistics {
     fn heap_size(&self) -> usize {
         self.num_rows.heap_size()
             + self.total_byte_size.heap_size()
@@ -56,7 +59,7 @@ impl HeapSize for Statistics {
     }
 }
 
-impl<T: Debug + Clone + PartialEq + Eq + PartialOrd + HeapSize> HeapSize
+impl<T: Debug + Clone + PartialEq + Eq + PartialOrd + DFHeapSize> DFHeapSize
     for Precision<T>
 {
     fn heap_size(&self) -> usize {
@@ -64,7 +67,7 @@ impl<T: Debug + Clone + PartialEq + Eq + PartialOrd + HeapSize> HeapSize
     }
 }
 
-impl HeapSize for ColumnStatistics {
+impl DFHeapSize for ColumnStatistics {
     fn heap_size(&self) -> usize {
         self.null_count.heap_size()
             + self.max_value.heap_size()
@@ -75,7 +78,9 @@ impl HeapSize for ColumnStatistics {
     }
 }
 
-impl HeapSize for ScalarValue {
+
+
+impl DFHeapSize for ScalarValue {
     fn heap_size(&self) -> usize {
         use crate::scalar::ScalarValue::*;
         match self {
@@ -131,7 +136,7 @@ impl HeapSize for ScalarValue {
     }
 }
 
-impl HeapSize for DataType {
+impl DFHeapSize for DataType {
     fn heap_size(&self) -> usize {
         use DataType::*;
         match self {
@@ -180,7 +185,7 @@ impl HeapSize for DataType {
     }
 }
 
-impl<T: HeapSize> HeapSize for Vec<T> {
+impl<T: DFHeapSize> DFHeapSize for Vec<T> {
     fn heap_size(&self) -> usize {
         let item_size = size_of::<T>();
         // account for the contents of the Vec
@@ -190,7 +195,7 @@ impl<T: HeapSize> HeapSize for Vec<T> {
     }
 }
 
-impl<K: HeapSize, V: HeapSize> HeapSize for HashMap<K, V> {
+impl<K: DFHeapSize, V: DFHeapSize> DFHeapSize for HashMap<K, V> {
     fn heap_size(&self) -> usize {
         let capacity = self.capacity();
         if capacity == 0 {
@@ -232,119 +237,119 @@ impl<K: HeapSize, V: HeapSize> HeapSize for HashMap<K, V> {
     }
 }
 
-impl<T: HeapSize> HeapSize for Arc<T> {
+impl<T: DFHeapSize> DFHeapSize for Arc<T> {
     fn heap_size(&self) -> usize {
         // Arc stores weak and strong counts on the heap alongside an instance of T
         2 * size_of::<usize>() + size_of::<T>() + self.as_ref().heap_size()
     }
 }
 
-impl HeapSize for Arc<dyn HeapSize> {
+impl DFHeapSize for Arc<dyn DFHeapSize> {
     fn heap_size(&self) -> usize {
         2 * size_of::<usize>() + size_of_val(self.as_ref()) + self.as_ref().heap_size()
     }
 }
 
-impl HeapSize for Fields {
+impl DFHeapSize for Fields {
     fn heap_size(&self) -> usize {
         self.into_iter().map(|f| f.heap_size()).sum::<usize>()
     }
 }
 
-impl HeapSize for StructArray {
+impl DFHeapSize for StructArray {
     fn heap_size(&self) -> usize {
         self.get_array_memory_size()
     }
 }
 
-impl HeapSize for LargeListArray {
+impl DFHeapSize for LargeListArray {
     fn heap_size(&self) -> usize {
         self.get_array_memory_size()
     }
 }
 
-impl HeapSize for ListArray {
+impl DFHeapSize for ListArray {
     fn heap_size(&self) -> usize {
         self.get_array_memory_size()
     }
 }
 
-impl HeapSize for FixedSizeListArray {
+impl DFHeapSize for FixedSizeListArray {
     fn heap_size(&self) -> usize {
         self.get_array_memory_size()
     }
 }
-impl HeapSize for MapArray {
+impl DFHeapSize for MapArray {
     fn heap_size(&self) -> usize {
         self.get_array_memory_size()
     }
 }
 
-impl HeapSize for Arc<str> {
+impl DFHeapSize for Arc<str> {
     fn heap_size(&self) -> usize {
         2 * size_of::<usize>() + self.as_ref().heap_size()
     }
 }
 
-impl<T: HeapSize> HeapSize for Box<T> {
+impl<T: DFHeapSize> DFHeapSize for Box<T> {
     fn heap_size(&self) -> usize {
         size_of::<T>() + self.as_ref().heap_size()
     }
 }
 
-impl<T: HeapSize> HeapSize for Option<T> {
+impl<T: DFHeapSize> DFHeapSize for Option<T> {
     fn heap_size(&self) -> usize {
         self.as_ref().map(|inner| inner.heap_size()).unwrap_or(0)
     }
 }
 
-impl<A, B> HeapSize for (A, B)
+impl<A, B> DFHeapSize for (A, B)
 where
-    A: HeapSize,
-    B: HeapSize,
+    A: DFHeapSize,
+    B: DFHeapSize,
 {
     fn heap_size(&self) -> usize {
         self.0.heap_size() + self.1.heap_size()
     }
 }
 
-impl HeapSize for String {
+impl DFHeapSize for String {
     fn heap_size(&self) -> usize {
         self.capacity()
     }
 }
 
-impl HeapSize for str {
+impl DFHeapSize for str {
     fn heap_size(&self) -> usize {
         self.to_string().capacity()
     }
 }
 
-impl HeapSize for UnionFields {
+impl DFHeapSize for UnionFields {
     fn heap_size(&self) -> usize {
         self.iter().map(|f| f.0.heap_size() + f.1.heap_size()).sum()
     }
 }
 
-impl HeapSize for UnionMode {
+impl DFHeapSize for UnionMode {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for TimeUnit {
+impl DFHeapSize for TimeUnit {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for IntervalUnit {
+impl DFHeapSize for IntervalUnit {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for Field {
+impl DFHeapSize for Field {
     fn heap_size(&self) -> usize {
         self.name().heap_size()
             + self.data_type().heap_size()
@@ -354,100 +359,108 @@ impl HeapSize for Field {
     }
 }
 
-impl HeapSize for IntervalMonthDayNano {
+
+impl DFHeapSize for IntervalMonthDayNano {
     fn heap_size(&self) -> usize {
         self.days.heap_size() + self.months.heap_size() + self.nanoseconds.heap_size()
     }
 }
 
-impl HeapSize for IntervalDayTime {
+impl DFHeapSize for IntervalDayTime {
     fn heap_size(&self) -> usize {
         self.days.heap_size() + self.milliseconds.heap_size()
     }
 }
 
-impl HeapSize for bool {
-    fn heap_size(&self) -> usize {
-        0 // no heap allocations
-    }
-}
-impl HeapSize for u8 {
+impl DFHeapSize for DateTime<Utc> {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for u16 {
+
+impl DFHeapSize for bool {
+    fn heap_size(&self) -> usize {
+        0 // no heap allocations
+    }
+}
+impl DFHeapSize for u8 {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for u32 {
+impl DFHeapSize for u16 {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for u64 {
+impl DFHeapSize for u32 {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for i8 {
+impl DFHeapSize for u64 {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for i16 {
+impl DFHeapSize for i8 {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for i32 {
-    fn heap_size(&self) -> usize {
-        0 // no heap allocations
-    }
-}
-impl HeapSize for i64 {
+impl DFHeapSize for i16 {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for i128 {
+impl DFHeapSize for i32 {
+    fn heap_size(&self) -> usize {
+        0 // no heap allocations
+    }
+}
+impl DFHeapSize for i64 {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for i256 {
+impl DFHeapSize for i128 {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for f16 {
+impl DFHeapSize for i256 {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for f32 {
-    fn heap_size(&self) -> usize {
-        0 // no heap allocations
-    }
-}
-impl HeapSize for f64 {
+impl DFHeapSize for f16 {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }
 }
 
-impl HeapSize for usize {
+impl DFHeapSize for f32 {
+    fn heap_size(&self) -> usize {
+        0 // no heap allocations
+    }
+}
+impl DFHeapSize for f64 {
+    fn heap_size(&self) -> usize {
+        0 // no heap allocations
+    }
+}
+
+impl DFHeapSize for usize {
     fn heap_size(&self) -> usize {
         0 // no heap allocations
     }

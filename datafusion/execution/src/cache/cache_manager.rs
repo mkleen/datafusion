@@ -24,7 +24,7 @@ use crate::cache::cache_unit::{
 use crate::cache::list_files_cache::ListFilesEntry;
 use crate::cache::list_files_cache::TableScopedPath;
 use datafusion_common::TableReference;
-use datafusion_common::heap_size::HeapSize;
+use datafusion_common::heap_size::DFHeapSize;
 use datafusion_common::stats::Precision;
 use datafusion_common::{Result, Statistics};
 use datafusion_physical_expr_common::sort_expr::LexOrdering;
@@ -69,10 +69,6 @@ impl CachedFileMetadata {
         }
     }
 
-    pub fn heap_size(&self) -> usize {
-        self.meta.size as usize + self.statistics.heap_size()
-    }
-
     /// Check if this cached entry is still valid for the given metadata.
     ///
     /// Returns true if the file size and last modified time match.
@@ -108,6 +104,21 @@ pub trait FileStatisticsCache: CacheAccessor<Path, CachedFileMetadata> {
     /// Retrieves the information about the entries currently cached.
     fn list_entries(&self) -> HashMap<Path, FileStatisticsCacheEntry>;
 }
+
+impl DFHeapSize for CachedFileMetadata {
+    fn heap_size(&self) -> usize {
+        self.meta.size.heap_size()
+            + self.meta.last_modified.heap_size()
+            + self.meta.version.heap_size()
+            + self.meta.e_tag.heap_size()
+            + self.meta.location.as_ref().heap_size()
+            + self.statistics.heap_size() 
+    }
+}
+
+
+
+
 
 /// Represents information about a cached statistics entry.
 /// This is used to expose the statistics cache contents to outside modules.

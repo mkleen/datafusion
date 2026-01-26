@@ -32,6 +32,8 @@ use arrow::record_batch::RecordBatch;
 use datafusion_common::{HashSet, Result};
 use datafusion_expr_common::columnar_value::ColumnarValue;
 use indexmap::IndexSet;
+use datafusion_common::heap_size::DFHeapSize;
+
 /// Represents Sort operation for a column in a RecordBatch
 ///
 /// Example:
