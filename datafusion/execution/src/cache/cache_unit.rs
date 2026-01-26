@@ -536,25 +536,9 @@ mod tests {
     #[test]
     fn test_limit() {
 
-        let values = Int32Array::from(vec![0, 1, 2, 3, 4, 5, 6, 7]);
-        let offsets = OffsetBuffer::new(ScalarBuffer::from(vec![0, 3, 6, 8]));
-        let field = Arc::new(Field::new_list_field(DataType::Int32, false));
-        let list_array = ListArray::new(field, offsets, Arc::new(values), None);
+        let stats = create_stats();
 
-        let column_statistics = ColumnStatistics {
-            null_count: Precision::Exact(1),
-            max_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
-            min_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
-            sum_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
-            distinct_count: Precision::Exact(100),
-            byte_size: Precision::Exact(800),
-        };
 
-        let stats = Statistics {
-            num_rows: Precision::Exact(100),
-            total_byte_size: Precision::Exact(100),
-            column_statistics: vec![column_statistics.clone()],
-        };
 
         let meta_1 = create_test_meta("test1.parquet", stats.heap_size() as u64);
         let value = CachedFileMetadata::new(
@@ -581,7 +565,7 @@ mod tests {
                         num_rows: Precision::Exact(100),
                         num_columns: 1,
                         table_size_bytes: Precision::Exact(100),
-                        statistics_size_bytes: 1224,
+                        statistics_size_bytes: 1260,
                         has_ordering: false,
                     }
                 ),
@@ -589,7 +573,7 @@ mod tests {
         );
 
         // replace the first entry
-        let meta_2 = create_test_meta("test1.parquet", stats.heap_size() as u64);
+        let meta_2 = create_test_meta("test1.parquet", stats.clone().heap_size() as u64);
         let value = CachedFileMetadata::new(
             meta_2.clone(),
             Arc::new(stats.clone()),
@@ -609,11 +593,34 @@ mod tests {
                         num_rows: Precision::Exact(100),
                         num_columns: 1,
                         table_size_bytes: Precision::Exact(100),
-                        statistics_size_bytes: 1224,
+                        statistics_size_bytes: 1260,
                         has_ordering: false,
                     }
                 ),
             ])
         );
+    }
+
+    fn create_stats() -> Statistics {
+        let series: Vec<i32> = (0..=10).step_by(1).collect();
+        let values = Int32Array::from(series);
+        let offsets = OffsetBuffer::new(ScalarBuffer::from(vec![0, 3, 6, 8]));
+        let field = Arc::new(Field::new_list_field(DataType::Int32, false));
+        let list_array = ListArray::new(field, offsets, Arc::new(values), None);
+
+        let column_statistics = ColumnStatistics {
+            null_count: Precision::Exact(1),
+            max_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
+            min_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
+            sum_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
+            distinct_count: Precision::Exact(100),
+            byte_size: Precision::Exact(800),
+        };
+
+        Statistics {
+            num_rows: Precision::Exact(100),
+            total_byte_size: Precision::Exact(100),
+            column_statistics: vec![column_statistics.clone()],
+        }
     }
 }
