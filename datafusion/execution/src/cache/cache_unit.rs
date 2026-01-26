@@ -217,6 +217,7 @@ impl FileStatisticsCache for DefaultFileStatisticsCache {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Deref;
     use super::*;
     use crate::cache::CacheAccessor;
     use crate::cache::cache_manager::{
@@ -566,11 +567,53 @@ mod tests {
         let cache = DefaultFileStatisticsCache::new(value.heap_size());
 
         cache.put(&meta_1.location, value);
-        let result = cache.get(&meta_1.location).unwrap();
-        assert_eq!(result., value)
-        
+        let cached = cache.get(&meta_1.location).unwrap();
+        assert!(cached.is_valid_for(&meta_1));
+        let entries = cache.list_entries();
 
+        assert_eq!(
+            entries,
+            HashMap::from([
+                (
+                    Path::from("test1.parquet"),
+                    FileStatisticsCacheEntry {
+                        object_meta: meta_1,
+                        num_rows: Precision::Exact(100),
+                        num_columns: 1,
+                        table_size_bytes: Precision::Exact(100),
+                        statistics_size_bytes: 1224,
+                        has_ordering: false,
+                    }
+                ),
+            ])
+        );
 
+        // replace the first entry
+        let meta_2 = create_test_meta("test1.parquet", stats.heap_size() as u64);
+        let value = CachedFileMetadata::new(
+            meta_2.clone(),
+            Arc::new(stats.clone()),
+            None,
+        );
 
+        cache.put(&meta_2.location, value);
+        let cached = cache.get(&meta_2.location).unwrap();
+        assert!(cached.is_valid_for(&meta_2));
+        assert_eq!(
+            entries,
+            HashMap::from([
+                (
+                    Path::from("test1.parquet"),
+                    FileStatisticsCacheEntry {
+                        object_meta: meta_2,
+                        num_rows: Precision::Exact(100),
+                        num_columns: 1,
+                        table_size_bytes: Precision::Exact(100),
+                        statistics_size_bytes: 1224,
+                        has_ordering: false,
+                    }
+                ),
+            ])
+        );
     }
 }
