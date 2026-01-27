@@ -57,6 +57,12 @@ impl DefaultFileStatisticsCache {
             state: Mutex::new(DefaultFileStatisticsCacheState::new(memory_limit)),
         }
     }
+
+    /// Returns the size of the cached memory, in bytes.
+    pub fn memory_used(&self) -> usize {
+        let state = self.state.lock().unwrap();
+        state.memory_used
+    }
 }
 
 pub struct DefaultFileStatisticsCacheState {
@@ -194,7 +200,6 @@ impl FileStatisticsCache for DefaultFileStatisticsCache {
 
     fn list_entries(&self) -> HashMap<Path, FileStatisticsCacheEntry> {
         let mut entries = HashMap::<Path, FileStatisticsCacheEntry>::new();
-
         for entry in self.state.lock().unwrap().lru_queue.list_entries() {
             let path = entry.0.clone();
             let cached = entry.1.clone();
@@ -217,7 +222,6 @@ impl FileStatisticsCache for DefaultFileStatisticsCache {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Deref;
     use super::*;
     use crate::cache::CacheAccessor;
     use crate::cache::cache_manager::{
@@ -534,12 +538,38 @@ mod tests {
     }
 
     #[test]
-    fn test_limit() {
+    fn test_cache_entry_added_when_entry_is_within_cache_limit() {
+        let value_1 = create_stats("test1.parquet",10);
+        let value_2 = create_stats("test2.parquet",10);
+            meta_2.clone(),
+            Arc::new(stats_2.clone()),
+            None,
+        );
 
-        let stats = create_stats();
+        let stats_3 = create_stats(10);
+        let meta_3 = create_test_meta("test.parquet", stats_3.heap_size() as u64);
+        let value_3 = CachedFileMetadata::new(
+            meta_3.clone(),
+            Arc::new(stats_3.clone()),
+            None,
+        );
+
+        // create a cache with a size which fits exactly 3 entries
+        let cache = DefaultFileStatisticsCache::new(3 * value_1.heap_size());
+
+        cache.put(&meta_1.location, value_1);
+        cache.put(&meta_2.location, value_2);
+        cache.put(&meta_3.location, value_3);
+
+        assert_eq!(cache.len(), 3);
+        assert_eq!(cache.memory_used(), 3710);
 
 
+    }
 
+    #[test]
+    fn test_cache_entry_rejected_when_entry_exceeds_cache_limit() {
+        let stats = create_stats(10);
         let meta_1 = create_test_meta("test1.parquet", stats.heap_size() as u64);
         let value = CachedFileMetadata::new(
             meta_1.clone(),
@@ -547,80 +577,57 @@ mod tests {
             None,
         );
 
-        // create a cache with exactly the size
-        let cache = DefaultFileStatisticsCache::new(value.heap_size());
-
+        // Create a cache with a size limit smaller than a single cache entry
+        let cache = DefaultFileStatisticsCache::new(value.heap_size() - 100);
         cache.put(&meta_1.location, value);
-        let cached = cache.get(&meta_1.location).unwrap();
-        assert!(cached.is_valid_for(&meta_1));
+        let result = cache.get(&meta_1.location);
+        assert!(result.is_none());
         let entries = cache.list_entries();
-
-        assert_eq!(
-            entries,
-            HashMap::from([
-                (
-                    Path::from("test1.parquet"),
-                    FileStatisticsCacheEntry {
-                        object_meta: meta_1,
-                        num_rows: Precision::Exact(100),
-                        num_columns: 1,
-                        table_size_bytes: Precision::Exact(100),
-                        statistics_size_bytes: 1260,
-                        has_ordering: false,
-                    }
-                ),
-            ])
-        );
-
-        // replace the first entry
-        let meta_2 = create_test_meta("test1.parquet", stats.clone().heap_size() as u64);
-        let value = CachedFileMetadata::new(
-            meta_2.clone(),
-            Arc::new(stats.clone()),
-            None,
-        );
-
-        cache.put(&meta_2.location, value);
-        let cached = cache.get(&meta_2.location).unwrap();
-        assert!(cached.is_valid_for(&meta_2));
-        assert_eq!(
-            entries,
-            HashMap::from([
-                (
-                    Path::from("test1.parquet"),
-                    FileStatisticsCacheEntry {
-                        object_meta: meta_2,
-                        num_rows: Precision::Exact(100),
-                        num_columns: 1,
-                        table_size_bytes: Precision::Exact(100),
-                        statistics_size_bytes: 1260,
-                        has_ordering: false,
-                    }
-                ),
-            ])
-        );
+        assert!(entries.is_empty());
     }
 
-    fn create_stats() -> Statistics {
-        let series: Vec<i32> = (0..=10).step_by(1).collect();
+    #[test]
+    fn test_replace() {
+        let value_1 = create_stats("test1.parquet",10);
+
+
+        // Create a cache with a size limit smaller than a single cache entry
+        let cache = DefaultFileStatisticsCache::new(value.heap_size() - 100);
+        cache.put(&meta_1.location, value);
+        let result = cache.get(&meta_1.location);
+        assert!(result.is_none());
+        let entries = cache.list_entries();
+        assert!(entries.is_empty());
+    }
+
+    fn create_stats(file_name: &str, number_of_elements: i32) -> CachedFileMetadata {
+        let series: Vec<i32> = (0..=number_of_elements).step_by(1).collect();
         let values = Int32Array::from(series);
-        let offsets = OffsetBuffer::new(ScalarBuffer::from(vec![0, 3, 6, 8]));
+        let offsets = OffsetBuffer::new(ScalarBuffer::from(vec![0]));
         let field = Arc::new(Field::new_list_field(DataType::Int32, false));
         let list_array = ListArray::new(field, offsets, Arc::new(values), None);
+
 
         let column_statistics = ColumnStatistics {
             null_count: Precision::Exact(1),
             max_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
             min_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
             sum_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
-            distinct_count: Precision::Exact(100),
-            byte_size: Precision::Exact(800),
+            distinct_count: Precision::Exact(number_of_elements as usize),
+            byte_size: Precision::Absent,
         };
 
-        Statistics {
+        let stats = Statistics {
             num_rows: Precision::Exact(100),
             total_byte_size: Precision::Exact(100),
             column_statistics: vec![column_statistics.clone()],
-        }
+        };
+
+        let meta_1 = create_test_meta(file_name, stats.heap_size() as u64);
+        CachedFileMetadata::new(
+            meta_1.clone(),
+            Arc::new(stats.clone()),
+            None,
+        )
     }
 }
