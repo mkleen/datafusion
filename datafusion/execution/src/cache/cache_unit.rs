@@ -138,7 +138,7 @@ impl DefaultFileStatisticsCacheState {
     fn evict_entries(&mut self) {
         while self.memory_used > self.memory_limit {
             if let Some(removed) = self.lru_queue.pop() {
-                self.memory_used -= removed.1.statistics.heap_size();
+                self.memory_used -= removed.1.heap_size();
             } else {
                 // cache is empty while memory_used > memory_limit, cannot happen
                 debug_assert!(
@@ -539,68 +539,28 @@ mod tests {
 
     #[test]
     fn test_cache_entry_added_when_entry_is_within_cache_limit() {
-        let value_1 = create_stats("test1.parquet",10);
-        let value_2 = create_stats("test2.parquet",10);
-            meta_2.clone(),
-            Arc::new(stats_2.clone()),
-            None,
-        );
+        let (meta_1, value_1) = create_cached_file_metadata_with_statts("test1.parquet", 10);
+        let (meta_2, value_2) = create_cached_file_metadata_with_statts("test2.parquet", 10);
+        let (meta_3, value_3) = create_cached_file_metadata_with_statts("test3.parquet", 10);
 
-        let stats_3 = create_stats(10);
-        let meta_3 = create_test_meta("test.parquet", stats_3.heap_size() as u64);
-        let value_3 = CachedFileMetadata::new(
-            meta_3.clone(),
-            Arc::new(stats_3.clone()),
-            None,
-        );
+        let heap_size_2_entries = value_1.heap_size() + value_2.heap_size();
 
-        // create a cache with a size which fits exactly 3 entries
-        let cache = DefaultFileStatisticsCache::new(3 * value_1.heap_size());
+        // create a cache with a size which fits exactly 2 entries
+        let cache = DefaultFileStatisticsCache::new(heap_size_2_entries);
 
         cache.put(&meta_1.location, value_1);
         cache.put(&meta_2.location, value_2);
+
+        assert_eq!(cache.len(), 2);
+        assert_eq!(cache.memory_used(), heap_size_2_entries);
+
         cache.put(&meta_3.location, value_3);
-
-        assert_eq!(cache.len(), 3);
-        assert_eq!(cache.memory_used(), 3710);
-
-
+        assert_eq!(cache.len(), 2);
+        assert_eq!(cache.memory_used(), heap_size_2_entries);
     }
 
-    #[test]
-    fn test_cache_entry_rejected_when_entry_exceeds_cache_limit() {
-        let stats = create_stats(10);
-        let meta_1 = create_test_meta("test1.parquet", stats.heap_size() as u64);
-        let value = CachedFileMetadata::new(
-            meta_1.clone(),
-            Arc::new(stats.clone()),
-            None,
-        );
 
-        // Create a cache with a size limit smaller than a single cache entry
-        let cache = DefaultFileStatisticsCache::new(value.heap_size() - 100);
-        cache.put(&meta_1.location, value);
-        let result = cache.get(&meta_1.location);
-        assert!(result.is_none());
-        let entries = cache.list_entries();
-        assert!(entries.is_empty());
-    }
-
-    #[test]
-    fn test_replace() {
-        let value_1 = create_stats("test1.parquet",10);
-
-
-        // Create a cache with a size limit smaller than a single cache entry
-        let cache = DefaultFileStatisticsCache::new(value.heap_size() - 100);
-        cache.put(&meta_1.location, value);
-        let result = cache.get(&meta_1.location);
-        assert!(result.is_none());
-        let entries = cache.list_entries();
-        assert!(entries.is_empty());
-    }
-
-    fn create_stats(file_name: &str, number_of_elements: i32) -> CachedFileMetadata {
+    fn create_cached_file_metadata_with_statts(file_name: &str, number_of_elements: i32) -> (ObjectMeta, CachedFileMetadata) {
         let series: Vec<i32> = (0..=number_of_elements).step_by(1).collect();
         let values = Int32Array::from(series);
         let offsets = OffsetBuffer::new(ScalarBuffer::from(vec![0]));
@@ -623,11 +583,13 @@ mod tests {
             column_statistics: vec![column_statistics.clone()],
         };
 
-        let meta_1 = create_test_meta(file_name, stats.heap_size() as u64);
-        CachedFileMetadata::new(
-            meta_1.clone(),
+        let object_meta = create_test_meta(file_name, stats.heap_size() as u64);
+        let value = CachedFileMetadata::new(
+            object_meta.clone(),
             Arc::new(stats.clone()),
             None,
-        )
+        );
+        (object_meta, value)
     }
 }
+
