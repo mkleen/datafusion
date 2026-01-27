@@ -45,7 +45,7 @@ pub use super::list_files_cache::{
 ///
 /// This struct embeds the [`ObjectMeta`] used for cache validation,
 /// along with the cached statistics and ordering information.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CachedFileMetadata {
     /// File metadata used for cache validation (size, last_modified).
     pub meta: ObjectMeta,

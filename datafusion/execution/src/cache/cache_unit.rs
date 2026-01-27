@@ -538,42 +538,71 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_entry_added_when_entry_is_within_cache_limit() {
-        let (meta_1, value_1) = create_cached_file_metadata_with_statts("test1.parquet", 10);
-        let (meta_2, value_2) = create_cached_file_metadata_with_statts("test2.parquet", 10);
-        let (meta_3, value_3) = create_cached_file_metadata_with_statts("test3.parquet", 10);
+    fn test_cache_entry_added_when_entries_are_within_cache_limit() {
+        let (meta_1, value_1) = create_cached_file_metadata_with_stats("test1.parquet");
+        let (meta_2, value_2) = create_cached_file_metadata_with_stats("test2.parquet");
+        let (meta_3, value_3) = create_cached_file_metadata_with_stats("test3.parquet");
 
-        let heap_size_2_entries = value_1.heap_size() + value_2.heap_size();
+        let limit_for_2_entries = value_1.heap_size() + value_2.heap_size();
 
-        // create a cache with a size which fits exactly 2 entries
-        let cache = DefaultFileStatisticsCache::new(heap_size_2_entries);
+        // create a cache with a limit which fits exactly 2 entries
+        let cache = DefaultFileStatisticsCache::new(limit_for_2_entries);
 
-        cache.put(&meta_1.location, value_1);
-        cache.put(&meta_2.location, value_2);
+        cache.put(&meta_1.location, value_1.clone());
+        cache.put(&meta_2.location, value_2.clone());
 
         assert_eq!(cache.len(), 2);
-        assert_eq!(cache.memory_used(), heap_size_2_entries);
+        assert_eq!(cache.memory_used(), limit_for_2_entries);
 
-        cache.put(&meta_3.location, value_3);
+        let result_1 = cache.get(&meta_1.location);
+        let result_2 = cache.get(&meta_2.location);
+        assert_eq!(result_1.unwrap(), value_1);
+        assert_eq!(result_2.unwrap(), value_2);
+
+        // adding the third entry evicts the first entry
+        cache.put(&meta_3.location, value_3.clone());
         assert_eq!(cache.len(), 2);
-        assert_eq!(cache.memory_used(), heap_size_2_entries);
+        assert_eq!(cache.memory_used(), limit_for_2_entries);
+
+        let result_1 = cache.get(&meta_1.location);
+        assert!(result_1.is_none());
+
+        let result_2 = cache.get(&meta_2.location);
+        let result_3 = cache.get(&meta_3.location);
+
+        assert_eq!(result_2.unwrap(), value_2);
+        assert_eq!(result_3.unwrap(), value_3);
+    }
+
+    #[test]
+    fn test_cache_rejects_entry_which_is_too_large() {
+        let (meta, value) = create_cached_file_metadata_with_stats("test1.parquet");
+
+        let limit_less_than_the_entry = value.heap_size() - 1;
+
+        // create a cache with a size less than the entry
+        let cache = DefaultFileStatisticsCache::new(limit_less_than_the_entry);
+
+        cache.put(&meta.location, value);
+
+        assert_eq!(cache.len(), 0);
+        assert_eq!(cache.memory_used(), 0);
     }
 
 
-    fn create_cached_file_metadata_with_statts(file_name: &str, number_of_elements: i32) -> (ObjectMeta, CachedFileMetadata) {
-        let series: Vec<i32> = (0..=number_of_elements).step_by(1).collect();
+    fn create_cached_file_metadata_with_stats(file_name: &str) -> (ObjectMeta, CachedFileMetadata) {
+        let series: Vec<i32> = (0..=10).step_by(1).collect();
         let values = Int32Array::from(series);
         let offsets = OffsetBuffer::new(ScalarBuffer::from(vec![0]));
         let field = Arc::new(Field::new_list_field(DataType::Int32, false));
         let list_array = ListArray::new(field, offsets, Arc::new(values), None);
-
 
         let column_statistics = ColumnStatistics {
             null_count: Precision::Exact(1),
             max_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
             min_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
             sum_value: Precision::Exact(ScalarValue::List(Arc::new(list_array.clone()))),
-            distinct_count: Precision::Exact(number_of_elements as usize),
+            distinct_count: Precision::Exact(10),
             byte_size: Precision::Absent,
         };
 
