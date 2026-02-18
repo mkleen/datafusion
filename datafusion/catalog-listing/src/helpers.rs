@@ -359,7 +359,7 @@ fn try_into_partitioned_file(
 
     let mut pf: PartitionedFile = object_meta.into();
     pf.partition_values = partition_values;
-
+    pf.table_reference = table_path.get_table_ref().clone();
     Ok(pf)
 }
 
