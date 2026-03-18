@@ -85,5 +85,5 @@ float_field float
 )
 STORED AS PARQUET LOCATION 'test_files/scratch/encrypted_parquet/'
 
-query error DataFusion error: Parquet error: Parquet error: Failed to fetch metadata for file 
+query error DataFusion error: Parquet error: Parquet error: Failed to fetch metadata for file
 SELECT * FROM parquet_table
