@@ -241,13 +241,15 @@ impl FileStatisticsCache for DefaultFileStatisticsCache {
     fn drop_table_entries(&self, table_ref: &Option<TableReference>) -> datafusion_common::Result<()> {
         let mut state = self.state.lock().unwrap();
         let mut table_paths = vec![];
-        for (path, _) in state.lru_queue.list_entries() {
-            if path.table == *table_ref {
-                table_paths.push(path.clone());
+        if table_ref.is_some() {
+            for (path, _) in state.lru_queue.list_entries() {
+                if path.table == *table_ref {
+                    table_paths.push(path.clone());
+                }
             }
-        }
-        for path in table_paths {
-            state.remove(&path);
+            for path in table_paths {
+                state.remove(&path);
+            }
         }
         Ok(())
     }
