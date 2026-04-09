@@ -56,7 +56,7 @@ pub use self::url::ListingTableUrl;
 use crate::file_groups::FileGroup;
 use chrono::TimeZone;
 use datafusion_common::stats::Precision;
-use datafusion_common::{ColumnStatistics, Result, exec_datafusion_err, TableReference};
+use datafusion_common::{ColumnStatistics, Result, TableReference, exec_datafusion_err};
 use datafusion_common::{ScalarValue, Statistics};
 use datafusion_physical_expr::LexOrdering;
 use futures::{Stream, StreamExt};
@@ -172,7 +172,7 @@ impl PartitionedFile {
             ordering: None,
             extensions: None,
             metadata_size_hint: None,
-            table_reference: None
+            table_reference: None,
         }
     }
 
@@ -186,7 +186,7 @@ impl PartitionedFile {
             ordering: None,
             extensions: None,
             metadata_size_hint: None,
-            table_reference: None
+            table_reference: None,
         }
     }
 
@@ -206,7 +206,7 @@ impl PartitionedFile {
             ordering: None,
             extensions: None,
             metadata_size_hint: None,
-            table_reference: None
+            table_reference: None,
         }
         .with_range(start, end)
     }
@@ -218,11 +218,13 @@ impl PartitionedFile {
         self
     }
 
-    pub fn with_table_reference(mut self, table_reference: Option<TableReference>) -> Self {
+    pub fn with_table_reference(
+        mut self,
+        table_reference: Option<TableReference>,
+    ) -> Self {
         self.table_reference = table_reference;
         self
     }
-
 
     /// Size of the file to be scanned (taking into account the range, if present).
     pub fn effective_size(&self) -> u64 {
