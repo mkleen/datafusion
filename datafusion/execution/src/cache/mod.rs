@@ -21,6 +21,7 @@ pub mod lru_queue;
 
 mod file_metadata_cache;
 mod list_files_cache;
+mod cache;
 
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 use datafusion_common::instant::Instant;
