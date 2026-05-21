@@ -323,14 +323,11 @@ mod tests {
         assert!(cache.get(&path).is_none());
 
         // Put a value
-        let metadata = CachedFileMetadata::new(
+        let cached_value = CachedFileMetadata::new(
             meta.clone(),
             Arc::new(Statistics::new_unknown(&schema)),
             None,
         );
-
-        let size = metadata.size();
-        let cached_value = metadata;
         cache.put(&path, cached_value);
 
         // Cache hit
@@ -369,7 +366,7 @@ mod tests {
         };
 
         let entry = entries.get(&path_3).unwrap();
-        assert_eq!(entry.size_bytes, 2048); // Should be updated value
+        assert_eq!(entry.value.meta.size, 2048); // Should be updated value
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]
