@@ -23,7 +23,7 @@ use crate::cache::file_statistics_cache::{
 };
 use crate::cache::list_files_cache::ListFilesEntry;
 use crate::cache::list_files_cache::TableScopedPath;
-use datafusion_common::TableReference;
+use datafusion_common::{HashMap, TableReference};
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 use datafusion_common::stats::Precision;
 use datafusion_common::{Result, Statistics};
@@ -31,7 +31,6 @@ use datafusion_physical_expr_common::sort_expr::LexOrdering;
 use object_store::ObjectMeta;
 use object_store::path::Path;
 use std::any::Any;
-use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::sync::Arc;

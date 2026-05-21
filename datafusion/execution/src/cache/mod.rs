@@ -30,7 +30,7 @@ pub use file_metadata_cache::DefaultFilesMetadataCache;
 pub use list_files_cache::DefaultListFilesCache;
 pub use list_files_cache::ListFilesEntry;
 pub use list_files_cache::TableScopedPath;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::time::Duration;
 

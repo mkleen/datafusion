@@ -24,12 +24,10 @@ use crate::cache::{
 use std::fmt::{Debug, Display, Formatter};
 use std::mem::size_of;
 use std::{
-    collections::HashMap,
     sync::{Arc, Mutex},
     time::Duration,
 };
-
-use datafusion_common::TableReference;
+use datafusion_common::{HashMap, TableReference};
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 use datafusion_common::instant::Instant;
 use object_store::{ObjectMeta, path::Path};

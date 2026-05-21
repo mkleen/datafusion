@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use std::{collections::HashMap, sync::Mutex};
+use std::sync::Mutex;
 
 use object_store::path::Path;
-
+use datafusion_common::HashMap;
 use crate::cache::{
     CacheAccessor,
     cache_manager::{CachedFileMetadataEntry, FileMetadataCache, FileMetadataCacheEntry},
@@ -218,7 +218,7 @@ impl FileMetadataCache for DefaultFilesMetadataCache {
 
     fn list_entries(&self) -> HashMap<Path, FileMetadataCacheEntry> {
         let state = self.state.lock().unwrap();
-        let mut entries = HashMap::<Path, FileMetadataCacheEntry>::new();
+        let mut entries = HashMap::new();
 
         for (path, entry) in state.lru_queue.list_entries() {
             entries.insert(
@@ -238,7 +238,6 @@ impl FileMetadataCache for DefaultFilesMetadataCache {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::sync::Arc;
 
     use crate::cache::CacheAccessor;
@@ -248,6 +247,7 @@ mod tests {
     use crate::cache::file_metadata_cache::DefaultFilesMetadataCache;
     use object_store::ObjectMeta;
     use object_store::path::Path;
+    use datafusion_common::HashMap;
 
     pub struct TestFileMetadata {
         metadata: String,
