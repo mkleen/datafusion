@@ -633,7 +633,7 @@ mod tests {
             + value_2.heap_size(&mut ctx);
 
         // create a cache with a limit which fits exactly 2 entries
-        let cache = DefaultFileStatisticsCache::new(limit_for_2_entries);
+        let cache = DefaultCache::new(limit_for_2_entries);
         let path_1 = TableScopedPath {
             path: meta_1.location.clone(),
             table: None,
@@ -700,7 +700,8 @@ mod tests {
         let limit_less_than_the_entry = value.heap_size(&mut ctx) - 1;
 
         // create a cache with a size less than the entry
-        let cache = DefaultFileStatisticsCache::new(limit_less_than_the_entry);
+        let cache = DefaultCache::new(limit_less_than_the_entry);
+
 
         let path_1 = TableScopedPath {
             path: meta.location.clone(),

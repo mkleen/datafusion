@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::cache::CacheAccessor;
+use crate::cache::{CacheAccessor, CacheValue};
 use crate::cache::DefaultListFilesCache;
 use crate::cache::file_statistics_cache::{
     DEFAULT_FILE_STATISTICS_MEMORY_LIMIT, DefaultFileStatisticsCache,
