@@ -251,7 +251,7 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> for DefaultCache<K, V> {
             .lru_queue
             .list_entries()
             .iter()
-            .filter_map(|(k, _)| {
+            .flat_map(|(k, _)| {
                 let matches = match (k.table_ref(), table_ref.as_ref()) {
                     (Some(a), Some(b)) => a == b,
                     (None, None) => true,
