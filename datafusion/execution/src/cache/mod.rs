@@ -107,13 +107,9 @@ pub trait Cache<K: CacheKey, V: CacheValue>: CacheAccessor<K, V> {
 }
 
 pub trait CacheKey: Clone + Eq + Hash + Send + Sync + Display + Debug {
-    fn heap_size(&self) -> usize {
-        0
-    }
+    fn heap_size(&self) -> usize;
 
-    fn table_ref(&self) -> Option<&TableReference> {
-        None
-    }
+    fn table_ref(&self) -> Option<&TableReference>;
 }
 
 pub trait CacheValue: Clone + Send + Sync {
@@ -134,7 +130,16 @@ impl<K: CacheKey, V: CacheValue> Debug for dyn Cache<K, V> {
     }
 }
 
-impl CacheKey for object_store::path::Path {}
+impl CacheKey for object_store::path::Path {
+    fn heap_size(&self) -> usize {
+        let mut ctx = DFHeapSizeCtx::default();
+        self.as_ref().heap_size(&mut ctx)
+    }
+
+    fn table_ref(&self) -> Option<&TableReference> {
+        None
+    }
+}
 
 impl CacheKey for TableScopedPath {
     fn heap_size(&self) -> usize {
