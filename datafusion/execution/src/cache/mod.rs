@@ -108,12 +108,14 @@ pub trait Cache<K: CacheKey, V: CacheValue>: CacheAccessor<K, V> {
 }
 
 pub trait CacheKey: Clone + Eq + Hash + Send + Sync  + Debug {
+    //TODO rename to heap_size once the whole refactoring is done
     fn size(&self) -> usize;
 
     fn table_ref(&self) -> Option<&TableReference>;
 }
 
 pub trait CacheValue: Clone + Send + Sync {
+    //TODO rename to heap_size once the whole refactoring is done
     fn size(&self) -> usize;
 }
 
