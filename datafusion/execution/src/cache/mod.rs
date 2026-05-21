@@ -104,21 +104,21 @@ pub trait Cache<K: CacheKey, V: CacheValue>: CacheAccessor<K, V> {
         Ok(())
     }
 
-    fn list_entries(&self) -> HashMap<K, EntryInfo<V>>;
+    fn list_entries(&self) -> HashMap<K, CacheEntryInfo<V>>;
 }
 
-pub trait CacheKey: Clone + Eq + Hash + Send + Sync + Display + Debug {
-    fn heap_size(&self) -> usize;
+pub trait CacheKey: Clone + Eq + Hash + Send + Sync  + Debug {
+    fn size(&self) -> usize;
 
     fn table_ref(&self) -> Option<&TableReference>;
 }
 
 pub trait CacheValue: Clone + Send + Sync {
-    fn heap_size(&self) -> usize;
+    fn size(&self) -> usize;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EntryInfo<V> {
+pub struct CacheEntryInfo<V> {
     pub value: V,
     pub size_bytes: usize,
     pub hits: usize,
@@ -132,9 +132,8 @@ impl<K: CacheKey, V: CacheValue> Debug for dyn Cache<K, V> {
 }
 
 impl CacheKey for object_store::path::Path {
-    fn heap_size(&self) -> usize {
-        let mut ctx = DFHeapSizeCtx::default();
-        self.as_ref().heap_size(&mut ctx)
+    fn size(&self) -> usize {
+        self.as_ref().heap_size(&mut DFHeapSizeCtx::default())
     }
 
     fn table_ref(&self) -> Option<&TableReference> {
@@ -143,9 +142,8 @@ impl CacheKey for object_store::path::Path {
 }
 
 impl CacheKey for TableScopedPath {
-    fn heap_size(&self) -> usize {
-        let mut ctx = DFHeapSizeCtx::default();
-        DFHeapSize::heap_size(self, &mut ctx)
+    fn size(&self) -> usize {
+        DFHeapSize::heap_size(self, &mut DFHeapSizeCtx::default())
     }
 
     fn table_ref(&self) -> Option<&TableReference> {

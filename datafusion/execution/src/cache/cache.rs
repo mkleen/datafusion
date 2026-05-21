@@ -24,7 +24,7 @@ use datafusion_common::TableReference;
 use datafusion_common::instant::Instant;
 
 use crate::cache::lru_queue::LruQueue;
-use crate::cache::{Cache, CacheAccessor, CacheKey, CacheValue, EntryInfo};
+use crate::cache::{Cache, CacheAccessor, CacheKey, CacheValue, CacheEntryInfo};
 
 pub trait TimeProvider: Send + Sync {
     fn now(&self) -> Instant;
@@ -66,7 +66,7 @@ impl<K: CacheKey, V: CacheValue> DefaultCacheState<K, V> {
     }
 
     fn entry_size(key: &K, value: &V) -> usize {
-        key.heap_size() + value.heap_size()
+        key.size() + value.size()
     }
 
     fn get(&mut self, key: &K, now: Instant) -> Option<V> {
@@ -266,7 +266,7 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> for DefaultCache<K, V> {
         Ok(())
     }
 
-    fn list_entries(&self) -> HashMap<K, EntryInfo<V>> {
+    fn list_entries(&self) -> HashMap<K, CacheEntryInfo<V>> {
         let state = self.state.lock().unwrap();
         state
             .lru_queue
@@ -274,7 +274,7 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> for DefaultCache<K, V> {
             .into_iter()
             .map(|(k, entry)| {
                 let hits = state.hits.get(k).copied().unwrap_or(0);
-                let info = EntryInfo {
+                let info = CacheEntryInfo {
                     value: entry.value.clone(),
                     size_bytes: entry.size_bytes,
                     hits,
