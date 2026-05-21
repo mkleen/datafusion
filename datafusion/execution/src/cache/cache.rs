@@ -26,7 +26,7 @@ use datafusion_common::instant::Instant;
 use crate::cache::lru_queue::LruQueue;
 use crate::cache::{Cache, CacheAccessor, CacheKey, CacheValue, EntryInfo};
 
-pub trait TimeProvider: Send + Sync + 'static {
+pub trait TimeProvider: Send + Sync {
     fn now(&self) -> Instant;
 }
 
@@ -47,7 +47,7 @@ struct CacheValueEntry<V> {
 }
 
 struct DefaultCacheState<K: CacheKey, V: CacheValue> {
-    queue: LruQueue<K, CacheValueEntry<V>>,
+    lru_queue: LruQueue<K, CacheValueEntry<V>>,
     hits: HashMap<K, usize>,
     memory_limit: usize,
     memory_used: usize,
@@ -57,7 +57,7 @@ struct DefaultCacheState<K: CacheKey, V: CacheValue> {
 impl<K: CacheKey, V: CacheValue> DefaultCacheState<K, V> {
     fn new(memory_limit: usize, ttl: Option<Duration>) -> Self {
         Self {
-            queue: LruQueue::new(),
+            lru_queue: LruQueue::new(),
             hits: HashMap::new(),
             memory_limit,
             memory_used: 0,
@@ -70,7 +70,7 @@ impl<K: CacheKey, V: CacheValue> DefaultCacheState<K, V> {
     }
 
     fn get(&mut self, key: &K, now: Instant) -> Option<V> {
-        let entry = self.queue.get(key)?;
+        let entry = self.lru_queue.get(key)?;
         if let Some(exp) = entry.expires
             && now > exp
         {
@@ -83,7 +83,7 @@ impl<K: CacheKey, V: CacheValue> DefaultCacheState<K, V> {
     }
 
     fn contains_key(&mut self, key: &K, now: Instant) -> bool {
-        let Some(entry) = self.queue.peek(key) else {
+        let Some(entry) = self.lru_queue.peek(key) else {
             return false;
         };
         match entry.expires {
@@ -103,7 +103,7 @@ impl<K: CacheKey, V: CacheValue> DefaultCacheState<K, V> {
             return self.remove(key);
         }
 
-        let expires = self.ttl.map(|t| now + t);
+        let expires = self.ttl.map(|ttl| now + ttl);
         let entry = CacheValueEntry {
             value,
             size_bytes: size,
@@ -112,7 +112,7 @@ impl<K: CacheKey, V: CacheValue> DefaultCacheState<K, V> {
 
         self.memory_used += size;
         self.hits.insert(key.clone(), 0);
-        let old = self.queue.put(key.clone(), entry);
+        let old = self.lru_queue.put(key.clone(), entry);
         if let Some(old_entry) = &old {
             self.memory_used -= old_entry.size_bytes;
         }
@@ -123,7 +123,7 @@ impl<K: CacheKey, V: CacheValue> DefaultCacheState<K, V> {
     }
 
     fn remove(&mut self, key: &K) -> Option<V> {
-        let entry = self.queue.remove(key)?;
+        let entry = self.lru_queue.remove(key)?;
         self.memory_used -= entry.size_bytes;
         self.hits.remove(key);
         Some(entry.value)
@@ -131,7 +131,7 @@ impl<K: CacheKey, V: CacheValue> DefaultCacheState<K, V> {
 
     fn evict_entries(&mut self) {
         while self.memory_used > self.memory_limit {
-            let Some((evicted_key, evicted)) = self.queue.pop() else {
+            let Some((evicted_key, evicted)) = self.lru_queue.pop() else {
                 // cache is empty while memory_used > memory_limit, cannot happen
                 log::error!(
                     "DefaultCache memory accounting bug: memory_used={} but cache is empty",
@@ -147,7 +147,7 @@ impl<K: CacheKey, V: CacheValue> DefaultCacheState<K, V> {
     }
 
     fn clear(&mut self) {
-        self.queue.clear();
+        self.lru_queue.clear();
         self.hits.clear();
         self.memory_used = 0;
     }
@@ -212,7 +212,7 @@ impl<K: CacheKey, V: CacheValue> CacheAccessor<K, V> for DefaultCache<K, V> {
     }
 
     fn len(&self) -> usize {
-        self.state.lock().unwrap().queue.len()
+        self.state.lock().unwrap().lru_queue.len()
     }
 
     fn clear(&self) {
@@ -248,7 +248,7 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> for DefaultCache<K, V> {
     fn drop_table_entries(&self, table_ref: &Option<TableReference>) -> Result<()> {
         let mut state = self.state.lock().unwrap();
         let to_remove: Vec<K> = state
-            .queue
+            .lru_queue
             .list_entries()
             .iter()
             .filter_map(|(k, _)| {
@@ -269,7 +269,7 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> for DefaultCache<K, V> {
     fn list_entries(&self) -> HashMap<K, EntryInfo<V>> {
         let state = self.state.lock().unwrap();
         state
-            .queue
+            .lru_queue
             .list_entries()
             .into_iter()
             .map(|(k, entry)| {
