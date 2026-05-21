@@ -22,10 +22,16 @@ pub mod lru_queue;
 mod file_metadata_cache;
 mod list_files_cache;
 
+use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
+use datafusion_common::instant::Instant;
+use datafusion_common::{HashMap, TableReference};
 pub use file_metadata_cache::DefaultFilesMetadataCache;
 pub use list_files_cache::DefaultListFilesCache;
 pub use list_files_cache::ListFilesEntry;
 pub use list_files_cache::TableScopedPath;
+use std::fmt::{Debug, Display};
+use std::hash::Hash;
+use std::time::Duration;
 
 /// Base trait for cache implementations with common operations.
 ///
@@ -77,4 +83,66 @@ pub trait CacheAccessor<K, V>: Send + Sync {
 
     /// Return the cache name.
     fn name(&self) -> String;
+}
+
+pub trait Cache<K: CacheKey, V: CacheValue>: CacheAccessor<K, V> {
+    fn cache_limit(&self) -> usize;
+
+    fn update_cache_limit(&self, limit: usize);
+
+    fn cache_ttl(&self) -> Option<Duration> {
+        None
+    }
+
+    fn update_cache_ttl(&self, _ttl: Option<Duration>) {}
+
+    fn drop_table_entries(
+        &self,
+        _table_ref: &Option<TableReference>,
+    ) -> datafusion_common::Result<()> {
+        Ok(())
+    }
+
+    fn list_entries(&self) -> HashMap<K, EntryInfo<V>>;
+}
+
+pub trait CacheKey: Clone + Eq + Hash + Send + Sync + Display + Debug {
+    fn heap_size(&self) -> usize {
+        0
+    }
+
+    fn table_ref(&self) -> Option<&TableReference> {
+        None
+    }
+}
+
+pub trait CacheValue: Clone + Send + Sync {
+    fn heap_size(&self) -> usize;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EntryInfo<V> {
+    pub value: V,
+    pub size_bytes: usize,
+    pub hits: usize,
+    pub expires: Option<Instant>,
+}
+
+impl<K: CacheKey, V: CacheValue> Debug for dyn Cache<K, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Cache name: {} with length: {}", self.name(), self.len())
+    }
+}
+
+impl CacheKey for object_store::path::Path {}
+
+impl CacheKey for TableScopedPath {
+    fn heap_size(&self) -> usize {
+        let mut ctx = DFHeapSizeCtx::default();
+        DFHeapSize::heap_size(self, &mut ctx)
+    }
+
+    fn table_ref(&self) -> Option<&TableReference> {
+        self.table.as_ref()
+    }
 }
