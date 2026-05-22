@@ -117,15 +117,21 @@ pub trait Cache<K: CacheKey, V: CacheValue>: CacheAccessor<K, V> {
     fn list_entries(&self) -> HashMap<K, CacheEntryInfo<V>>;
 }
 
+/// Key type for entries stored in a [`Cache`].
 pub trait CacheKey: Clone + Eq + Hash + Send + Sync  + Debug {
     //TODO rename to heap_size once the whole refactoring is done
+    /// Heap size of the key in bytes, used for cache memory accounting.
     fn size(&self) -> usize;
 
+    /// Table this key is associated with, or `None` if the key is not
+    /// table-scoped.
     fn table_ref(&self) -> Option<&TableReference>;
 }
 
+/// Value type for entries stored in a [`Cache`].
 pub trait CacheValue: Clone + Send + Sync {
     //TODO rename to heap_size once the whole refactoring is done
+    /// Heap size of the value in bytes used for cache memory accounting.
     fn size(&self) -> usize;
 }
 
