@@ -33,7 +33,7 @@ use datafusion_execution::cache::DefaultListFilesCache;
 use datafusion_execution::cache::cache_manager::{
     CacheManagerConfig, FileStatisticsCache,
 };
-use datafusion_execution::cache::file_statistics_cache::DefaultFileStatisticsCache;
+use datafusion_execution::cache::cache::DefaultCache;
 use datafusion_execution::config::SessionConfig;
 use datafusion_execution::runtime_env::RuntimeEnvBuilder;
 use datafusion_expr::{Expr, col, lit};
@@ -45,6 +45,7 @@ use datafusion_physical_optimizer::filter_pushdown::FilterPushdown;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::filter::FilterExec;
 use tempfile::tempdir;
+use datafusion_execution::cache::file_statistics_cache::DEFAULT_FILE_STATISTICS_MEMORY_LIMIT;
 
 #[tokio::test]
 async fn check_stats_precision_with_filter_pushdown() {
@@ -238,7 +239,7 @@ async fn list_files_with_session_level_cache() {
 
 async fn get_listing_table(
     table_path: &ListingTableUrl,
-    static_cache: Option<Arc<dyn FileStatisticsCache>>,
+    static_cache: Option<Arc<FileStatisticsCache>>,
     opt: &ListingOptions,
 ) -> ListingTable {
     let schema = opt
@@ -257,12 +258,12 @@ async fn get_listing_table(
 }
 
 fn get_cache_runtime_state() -> (
-    Arc<DefaultFileStatisticsCache>,
+    Arc<FileStatisticsCache>,
     Arc<DefaultListFilesCache>,
     SessionState,
 ) {
     let cache_config = CacheManagerConfig::default();
-    let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
+    let file_static_cache = Arc::new(DefaultCache::new(DEFAULT_FILE_STATISTICS_MEMORY_LIMIT));
     let list_file_cache = Arc::new(DefaultListFilesCache::default());
 
     let cache_config = cache_config

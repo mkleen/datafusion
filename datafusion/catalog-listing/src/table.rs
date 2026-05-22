@@ -186,7 +186,7 @@ pub struct ListingTable {
     /// The SQL definition for this table, if any
     definition: Option<String>,
     /// Cache for collected file statistics
-    collected_statistics: Option<Arc<dyn FileStatisticsCache>>,
+    collected_statistics: Option<Arc<FileStatisticsCache>>,
     /// Constraints applied to this table
     constraints: Constraints,
     /// Column default expressions for columns that are not physically present in the data files
@@ -259,7 +259,7 @@ impl ListingTable {
     /// Setting a statistics cache on the `SessionContext` can avoid refetching statistics
     /// multiple times in the same session.
     ///
-    pub fn with_cache(mut self, cache: Option<Arc<dyn FileStatisticsCache>>) -> Self {
+    pub fn with_cache(mut self, cache: Option<Arc<FileStatisticsCache>>) -> Self {
         self.collected_statistics = cache;
         self
     }

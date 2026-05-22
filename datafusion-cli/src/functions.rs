@@ -47,6 +47,7 @@ use parquet::data_type::{ByteArray, FixedLenByteArray};
 use parquet::file::reader::FileReader;
 use parquet::file::serialized_reader::SerializedFileReader;
 use parquet::file::statistics::Statistics;
+use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 
 #[derive(Debug)]
 pub enum Function {
@@ -667,14 +668,14 @@ impl TableFunctionImpl for StatisticsCacheFunc {
                 table_arr
                     .push(path.table.map_or_else(|| "".to_string(), |t| t.to_string()));
                 file_modified_arr
-                    .push(Some(entry.object_meta.last_modified.timestamp_millis()));
-                file_size_bytes_arr.push(entry.object_meta.size);
-                e_tag_arr.push(entry.object_meta.e_tag);
-                version_arr.push(entry.object_meta.version);
-                num_rows_arr.push(entry.num_rows.to_string());
-                num_columns_arr.push(entry.num_columns as u64);
-                table_size_bytes_arr.push(entry.table_size_bytes.to_string());
-                statistics_size_bytes_arr.push(entry.statistics_size_bytes as u64);
+                    .push(Some(entry.value.meta.last_modified.timestamp_millis()));
+                file_size_bytes_arr.push(entry.value.meta.size);
+                e_tag_arr.push(entry.value.meta.e_tag);
+                version_arr.push(entry.value.meta.version);
+                num_rows_arr.push(entry.value.statistics.num_rows.to_string());
+                num_columns_arr.push(entry.value.statistics.column_statistics.len() as u64);
+                 table_size_bytes_arr.push(entry.value.statistics.total_byte_size.to_string());
+                statistics_size_bytes_arr.push(entry.value.statistics.heap_size(&mut DFHeapSizeCtx::default()) as u64);
             }
         }
 
