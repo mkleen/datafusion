@@ -19,9 +19,9 @@ pub mod cache_manager;
 pub mod file_statistics_cache;
 pub mod lru_queue;
 
+mod cache;
 mod file_metadata_cache;
 mod list_files_cache;
-mod cache;
 
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 use datafusion_common::instant::Instant;
@@ -118,7 +118,7 @@ pub trait Cache<K: CacheKey, V: CacheValue>: CacheAccessor<K, V> {
 }
 
 /// Key type for entries stored in a [`Cache`].
-pub trait CacheKey: Clone + Eq + Hash + Send + Sync  + Debug {
+pub trait CacheKey: Clone + Eq + Hash + Send + Sync + Debug {
     //TODO rename to heap_size once the whole refactoring is done
     /// Heap size of the key in bytes, used for cache memory accounting.
     fn size(&self) -> usize;

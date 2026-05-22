@@ -21,16 +21,17 @@ use crate::cache::{
     lru_queue::LruQueue,
 };
 
+use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
+use datafusion_common::instant::Instant;
+use datafusion_common::{HashMap, TableReference};
+use object_store::{ObjectMeta, path::Path};
 use std::fmt::{Debug, Display, Formatter};
 use std::mem::size_of;
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use datafusion_common::{HashMap, TableReference};
-use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
-use datafusion_common::instant::Instant;
-use object_store::{ObjectMeta, path::Path};
+
 
 pub trait TimeProvider: Send + Sync + 'static {
     fn now(&self) -> Instant;
