@@ -26,14 +26,14 @@ use datafusion_common::instant::Instant;
 use crate::cache::lru_queue::LruQueue;
 use crate::cache::{Cache, CacheAccessor, CacheKey, CacheValue, CacheEntryInfo};
 
-pub trait TimeProvider: Send + Sync {
+pub trait CacheTimeProvider: Send + Sync {
     fn now(&self) -> Instant;
 }
 
 #[derive(Debug, Default)]
 pub struct SystemTimeProvider;
 
-impl TimeProvider for SystemTimeProvider {
+impl CacheTimeProvider for SystemTimeProvider {
     fn now(&self) -> Instant {
         Instant::now()
     }
@@ -155,7 +155,7 @@ impl<K: CacheKey, V: CacheValue> DefaultCacheState<K, V> {
 
 pub struct DefaultCache<K: CacheKey, V: CacheValue> {
     state: Mutex<DefaultCacheState<K, V>>,
-    time_provider: Arc<dyn TimeProvider>,
+    time_provider: Arc<dyn CacheTimeProvider>,
     name: String,
 }
 
@@ -177,7 +177,7 @@ impl<K: CacheKey, V: CacheValue> DefaultCache<K, V> {
         self
     }
 
-    pub fn with_time_provider(mut self, provider: Arc<dyn TimeProvider>) -> Self {
+    pub fn with_time_provider(mut self, provider: Arc<dyn CacheTimeProvider>) -> Self {
         self.time_provider = provider;
         self
     }

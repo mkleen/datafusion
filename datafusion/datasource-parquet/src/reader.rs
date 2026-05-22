@@ -32,10 +32,10 @@ use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::{AsyncFileReader, ParquetObjectReader};
 use parquet::file::metadata::ParquetMetaData;
 use std::any::Any;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::Range;
 use std::sync::Arc;
+use datafusion_common::HashMap;
 
 /// Interface for reading Apache Parquet files.
 ///

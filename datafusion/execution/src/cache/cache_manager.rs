@@ -180,6 +180,18 @@ impl CachedFileList {
     }
 }
 
+impl CacheValue for CachedFileList {
+    fn size(&self) -> usize {
+        let size_bytes = (self.files.capacity() * size_of::<ObjectMeta>());
+        let x = self
+            .files
+            .iter()
+            .map(crate::cache::list_files_cache::meta_heap_bytes)
+            .reduce(|acc, b| acc + b);
+        size_bytes + x.unwrap_or(0)
+    }
+}
+
 impl Deref for CachedFileList {
     type Target = Arc<Vec<ObjectMeta>>;
     fn deref(&self) -> &Self::Target {

@@ -26,9 +26,7 @@ use arrow::compute::sum;
 use arrow::datatypes::{DataType, Schema, SchemaRef, TimeUnit};
 use datafusion_common::encryption::FileDecryptionProperties;
 use datafusion_common::stats::Precision;
-use datafusion_common::{
-    ColumnStatistics, DataFusionError, Result, ScalarValue, Statistics,
-};
+use datafusion_common::{ColumnStatistics, DataFusionError, HashMap, Result, ScalarValue, Statistics};
 use datafusion_execution::cache::cache_manager::{
     CachedFileMetadataEntry, FileMetadata, FileMetadataCache,
 };
@@ -48,7 +46,6 @@ use parquet::file::metadata::{
 };
 use parquet::schema::types::SchemaDescriptor;
 use std::any::Any;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Minimum fraction of row groups that must report NDV statistics for the
