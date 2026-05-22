@@ -252,6 +252,12 @@ pub struct CachedFileMetadataEntry {
     pub file_metadata: Arc<dyn FileMetadata>,
 }
 
+impl CacheValue for CachedFileMetadataEntry {
+    fn size(&self) -> usize {
+        self.file_metadata.memory_size()
+    }
+}
+
 impl CachedFileMetadataEntry {
     /// Create a new cached file metadata entry.
     pub fn new(meta: ObjectMeta, file_metadata: Arc<dyn FileMetadata>) -> Self {

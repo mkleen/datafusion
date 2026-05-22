@@ -92,7 +92,6 @@ pub trait CacheAccessor<K, V>: Send + Sync {
 /// the implementation can account for heap usage when enforcing the cache limit.
 ///
 pub trait Cache<K: CacheKey, V: CacheValue>: CacheAccessor<K, V> {
-
     /// Current memory budget, in bytes.
     fn cache_limit(&self) -> usize;
 
