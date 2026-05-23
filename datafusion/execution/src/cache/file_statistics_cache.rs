@@ -19,10 +19,8 @@ pub use crate::cache::cache_manager::{
     CachedFileMetadata, FileStatisticsCache, FileStatisticsCacheEntry,
 };
 use crate::cache::{CacheAccessor, CacheValue, TableScopedPath};
-use std::sync::Mutex;
 
 pub use crate::cache::DefaultFilesMetadataCache;
-use datafusion_common::HashMap;
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 
 
