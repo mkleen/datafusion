@@ -14,22 +14,29 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use datafusion_common::{HashMap, Result};
 use datafusion_common::TableReference;
 use datafusion_common::instant::Instant;
+use datafusion_common::{HashMap, Result};
 
 use crate::cache::lru_queue::LruQueue;
-use crate::cache::{Cache, CacheAccessor, CacheKey, CacheValue, CacheEntryInfo};
+use crate::cache::{Cache, CacheAccessor, CacheEntryInfo, CacheKey, CacheValue};
 
+/// Source of the current time used by a [`DefaultCache`] when applying TTLs.
+///
+/// Abstracted as a trait so tests can drive expiration deterministically with a
+/// mock clock instead of waiting for wall-clock time to advance.
 pub trait CacheTimeProvider: Send + Sync {
+    /// Return the current instant.
     fn now(&self) -> Instant;
 }
 
+/// [`CacheTimeProvider`] backed by [`Instant::now`].
+///
+/// This is the default time source used by [`DefaultCache`] when no provider
+/// is supplied via [`DefaultCache::with_time_provider`].
 #[derive(Debug, Default)]
 pub struct SystemTimeProvider;
 
@@ -39,6 +46,10 @@ impl CacheTimeProvider for SystemTimeProvider {
     }
 }
 
+/// An entry stored in a [`DefaultCache`].
+///
+/// Wraps the cached value with its accounted heap size and an optional
+/// expiration instant derived from the cache's TTL at insertion time.
 #[derive(Clone)]
 struct CacheValueEntry<V> {
     value: V,
@@ -46,6 +57,11 @@ struct CacheValueEntry<V> {
     expires: Option<Instant>,
 }
 
+/// Mutable inner state of a [`DefaultCache`].
+///
+/// Held behind a [`Mutex`] in [`DefaultCache`] so concurrent callers can share
+/// a single cache. Tracks the LRU ordering, per-key hit counts, and the
+/// running memory accounting used to enforce `memory_limit`.
 struct DefaultCacheState<K: CacheKey, V: CacheValue> {
     lru_queue: LruQueue<K, CacheValueEntry<V>>,
     hits: HashMap<K, usize>,
@@ -153,6 +169,17 @@ impl<K: CacheKey, V: CacheValue> DefaultCacheState<K, V> {
     }
 }
 
+/// In-memory [`Cache`] with an LRU eviction policy, byte-based memory limit,
+/// and optional per-entry TTL.
+///
+/// Entries are evicted in least-recently-used order whenever an insert would
+/// push `memory_used` above `memory_limit`. Inserts whose own size exceeds the
+/// limit are rejected (and any prior entry under the same key is removed).
+/// When a TTL is configured, the expiration is stamped onto each entry at
+/// insertion time and checked lazily on access.
+///
+/// Concurrency is handled internally via a [`Mutex`], so a single instance
+/// can be shared across threads through an [`Arc`].
 pub struct DefaultCache<K: CacheKey, V: CacheValue> {
     state: Mutex<DefaultCacheState<K, V>>,
     time_provider: Arc<dyn CacheTimeProvider>,
@@ -160,10 +187,13 @@ pub struct DefaultCache<K: CacheKey, V: CacheValue> {
 }
 
 impl<K: CacheKey, V: CacheValue> DefaultCache<K, V> {
+    /// Create a cache with the given memory budget in bytes and no TTL.
     pub fn new(memory_limit: usize) -> Self {
         Self::with_ttl(memory_limit, None)
     }
 
+    /// Create a cache with the given memory budget in bytes and an optional
+    /// TTL applied to every newly inserted entry.
     pub fn with_ttl(memory_limit: usize, ttl: Option<Duration>) -> Self {
         Self {
             state: Mutex::new(DefaultCacheState::new(memory_limit, ttl)),
@@ -172,16 +202,24 @@ impl<K: CacheKey, V: CacheValue> DefaultCache<K, V> {
         }
     }
 
+    /// Override the cache name reported by [`CacheAccessor::name`].
+    ///
+    /// Useful for distinguishing instances in logs and diagnostics when
+    /// several caches of the same type coexist.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
     }
 
+    /// Override the time source used to stamp and check TTLs.
+    ///
+    /// Primarily intended for tests that need to advance time deterministically.
     pub fn with_time_provider(mut self, provider: Arc<dyn CacheTimeProvider>) -> Self {
         self.time_provider = provider;
         self
     }
 
+    /// Number of bytes currently accounted for by live entries.
     pub fn memory_used(&self) -> usize {
         self.state.lock().unwrap().memory_used
     }
@@ -284,6 +322,4 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> for DefaultCache<K, V> {
             })
             .collect()
     }
-
-
 }
