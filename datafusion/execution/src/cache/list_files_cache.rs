@@ -17,8 +17,7 @@
 
 use crate::cache::{
     CacheAccessor,
-    cache_manager::{CachedFileList, ListFilesCache},
-    lru_queue::LruQueue,
+    cache_manager::CachedFileList,
 };
 
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
