@@ -15,10 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::cache::{
-    CacheAccessor,
-    cache_manager::CachedFileList,
-};
+use crate::cache::{CacheAccessor, cache_manager::CachedFileList};
 
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 use datafusion_common::instant::Instant;

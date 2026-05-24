@@ -149,8 +149,8 @@ impl CachedFileList {
 
 impl CacheValue for CachedFileList {
     fn size(&self) -> usize {
-        self.files.capacity() * size_of::<ObjectMeta>() +
-            self
+        self.files.capacity() * size_of::<ObjectMeta>()
+            + self
                 .files
                 .iter()
                 .map(crate::cache::list_files_cache::meta_heap_bytes)
