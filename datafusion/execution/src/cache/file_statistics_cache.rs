@@ -22,7 +22,6 @@ use crate::cache::{CacheAccessor, CacheValue, TableScopedPath};
 
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 
-
 pub const DEFAULT_FILE_STATISTICS_MEMORY_LIMIT: usize = 20 * 1024 * 1024; // 20MiB
 
 impl CacheValue for CachedFileMetadata {
@@ -34,7 +33,9 @@ impl CacheValue for CachedFileMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cache::cache::DefaultCache;
     use crate::cache::cache_manager::CachedFileMetadata;
+    use crate::cache::{Cache, CacheEntryInfo};
     use arrow::array::{Int32Array, ListArray, RecordBatch};
     use arrow::buffer::{OffsetBuffer, ScalarBuffer};
     use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
@@ -48,8 +49,6 @@ mod tests {
     use object_store::ObjectMeta;
     use object_store::path::Path;
     use std::sync::Arc;
-    use crate::cache::{Cache, CacheEntryInfo};
-    use crate::cache::cache::DefaultCache;
 
     fn create_test_meta(path: &str, size: u64) -> ObjectMeta {
         ObjectMeta {
@@ -464,7 +463,6 @@ mod tests {
 
         // create a cache with a size less than the entry
         let cache = DefaultCache::new(limit_less_than_the_entry);
-
 
         let path_1 = TableScopedPath {
             path: meta.location.clone(),

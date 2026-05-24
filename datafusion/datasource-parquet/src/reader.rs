@@ -21,6 +21,7 @@
 use crate::ParquetFileMetrics;
 use crate::metadata::DFParquetMetadata;
 use bytes::Bytes;
+use datafusion_common::HashMap;
 use datafusion_datasource::PartitionedFile;
 use datafusion_execution::cache::cache_manager::FileMetadata;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
@@ -35,7 +36,6 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::ops::Range;
 use std::sync::Arc;
-use datafusion_common::HashMap;
 
 /// Interface for reading Apache Parquet files.
 ///

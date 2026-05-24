@@ -17,24 +17,20 @@
 
 use std::sync::Mutex;
 
-use object_store::path::Path;
+use crate::cache::cache_manager::FileMetadataCache;
 use datafusion_common::HashMap;
-use crate::cache::{
-    cache_manager::FileMetadataCache, 
-};
+use object_store::path::Path;
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
+    use crate::cache::cache::DefaultCache;
+    use crate::cache::cache_manager::{CachedFileMetadataEntry, FileMetadata};
     use crate::cache::{Cache, CacheAccessor, CacheEntryInfo};
-    use crate::cache::cache_manager::{
-        CachedFileMetadataEntry, FileMetadata,
-    };
+    use datafusion_common::HashMap;
     use object_store::ObjectMeta;
     use object_store::path::Path;
-    use datafusion_common::HashMap;
-    use crate::cache::cache::DefaultCache;
 
     pub struct TestFileMetadata {
         metadata: String,
@@ -149,9 +145,7 @@ mod tests {
         };
         // total size of metadata = size of metadata + size of key
         let metadata = "a".repeat(size - path.len());
-        let metadata: Arc<dyn FileMetadata> = Arc::new(TestFileMetadata {
-            metadata,
-        });
+        let metadata: Arc<dyn FileMetadata> = Arc::new(TestFileMetadata { metadata });
 
         (object_meta, metadata)
     }
@@ -319,11 +313,8 @@ mod tests {
         assert!(cache.contains_key(&object_meta14.location));
     }
 
-
-
     #[test]
     fn test_default_file_metadata_cache_entries_info() {
-
         let cache = DefaultCache::new(1000);
         let (object_meta1, metadata1) = generate_test_metadata_with_size("1", 100);
         let (object_meta2, metadata2) = generate_test_metadata_with_size("2", 200);
@@ -334,18 +325,9 @@ mod tests {
         let entry_2 = CachedFileMetadataEntry::new(object_meta2.clone(), metadata2);
         let entry_3 = CachedFileMetadataEntry::new(object_meta3.clone(), metadata3);
 
-        cache.put(
-            &object_meta1.location,
-            entry_1.clone(),
-        );
-        cache.put(
-            &object_meta2.location,
-            entry_2.clone(),
-        );
-        cache.put(
-            &object_meta3.location,
-            entry_3.clone(),
-        );
+        cache.put(&object_meta1.location, entry_1.clone());
+        cache.put(&object_meta2.location, entry_2.clone());
+        cache.put(&object_meta3.location, entry_3.clone());
         let entries = cache.list_entries();
 
         assert_eq!(
@@ -419,10 +401,7 @@ mod tests {
         // new entry, will evict "2"
         let (object_meta4, metadata4) = generate_test_metadata_with_size("4", 600);
         let entry_4 = CachedFileMetadataEntry::new(object_meta4.clone(), metadata4);
-        cache.put(
-            &object_meta4.location,
-            entry_4.clone(),
-        );
+        cache.put(&object_meta4.location, entry_4.clone());
         assert_eq!(
             cache.list_entries(),
             HashMap::from([
@@ -458,11 +437,9 @@ mod tests {
 
         // replace entry "1"
         let (object_meta1_new, metadata1_new) = generate_test_metadata_with_size("1", 50);
-        let entry_1 = CachedFileMetadataEntry::new(object_meta1_new.clone(), metadata1_new);
-        cache.put(
-            &object_meta1_new.location,
-            entry_1.clone(),
-        );
+        let entry_1 =
+            CachedFileMetadataEntry::new(object_meta1_new.clone(), metadata1_new);
+        cache.put(&object_meta1_new.location, entry_1.clone());
         assert_eq!(
             cache.list_entries(),
             HashMap::from([
@@ -482,7 +459,6 @@ mod tests {
                         size_bytes: 300,
                         hits: 0,
                         expires: None,
-
                     }
                 ),
                 (

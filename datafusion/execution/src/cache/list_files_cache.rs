@@ -32,7 +32,6 @@ use std::{
     time::Duration,
 };
 
-
 #[derive(Clone, PartialEq, Debug)]
 pub struct ListFilesEntry {
     pub metas: CachedFileList,
@@ -111,10 +110,10 @@ impl Display for TableScopedPath {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cache::cache::{CacheTimeProvider, DefaultCache};
+    use crate::cache::{Cache, CacheEntryInfo, CacheKey, CacheValue};
     use chrono::DateTime;
     use std::thread;
-    use crate::cache::{Cache, CacheEntryInfo, CacheKey, CacheValue};
-    use crate::cache::cache::{CacheTimeProvider, DefaultCache};
 
     struct MockTimeProvider {
         base: Instant,
@@ -280,8 +279,7 @@ mod tests {
         assert!(cache.contains_key(&key3));
 
         // Adding a new entry should evict path1 (LRU)
-        let (key4, value4, _) =
-            create_test_list_files_entry("path4", 1, 100, table_ref);
+        let (key4, value4, _) = create_test_list_files_entry("path4", 1, 100, table_ref);
         cache.put(&key4, value4);
 
         assert_eq!(cache.len(), 3);
@@ -314,8 +312,7 @@ mod tests {
         let _ = cache.get(&key1);
 
         // Adding a new entry should evict path2 (the LRU)
-        let (key4, value4, _) =
-            create_test_list_files_entry("path4", 1, 100, table_ref);
+        let (key4, value4, _) = create_test_list_files_entry("path4", 1, 100, table_ref);
         cache.put(&key4, value4);
 
         assert_eq!(cache.len(), 3);
@@ -391,8 +388,7 @@ mod tests {
             create_test_list_files_entry("path1", 1, 100, table_ref.clone());
         let (key2, value2, _) =
             create_test_list_files_entry("path2", 1, 100, table_ref.clone());
-        let (key3, value3, _) =
-            create_test_list_files_entry("path3", 1, 100, table_ref);
+        let (key3, value3, _) = create_test_list_files_entry("path3", 1, 100, table_ref);
 
         let cache = DefaultCache::new(size * 3);
 
@@ -543,8 +539,7 @@ mod tests {
             create_test_list_files_entry("path1", 1, 400, table_ref.clone());
         let (key2, value2, _) =
             create_test_list_files_entry("path2", 1, 400, table_ref.clone());
-        let (key3, value3, _) =
-            create_test_list_files_entry("path3", 1, 400, table_ref);
+        let (key3, value3, _) = create_test_list_files_entry("path3", 1, 400, table_ref);
         cache.put(&key1, value1);
         mock_time.inc(Duration::from_millis(50));
         cache.put(&key2, value2);
@@ -568,8 +563,7 @@ mod tests {
         let cache = DefaultCache::with_ttl(1000, Some(ttl));
 
         let table_ref = Some(TableReference::from("table"));
-        let (key, value, _) =
-            create_test_list_files_entry("path", 2, 50, table_ref);
+        let (key, value, _) = create_test_list_files_entry("path", 2, 50, table_ref);
 
         // Cache the entry
         cache.put(&key, value.clone());

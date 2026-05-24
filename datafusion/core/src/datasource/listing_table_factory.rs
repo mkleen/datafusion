@@ -485,7 +485,8 @@ mod tests {
             .to_string();
 
         // Test with collect_statistics enabled
-        let file_statistics_cache = Arc::new(DefaultCache::new(DEFAULT_FILE_STATISTICS_MEMORY_LIMIT));
+        let file_statistics_cache =
+            Arc::new(DefaultCache::new(DEFAULT_FILE_STATISTICS_MEMORY_LIMIT));
         let cache_config = CacheManagerConfig::default()
             .with_file_statistics_cache(Some(file_statistics_cache.clone()));
         let runtime = RuntimeEnvBuilder::new()
@@ -515,7 +516,8 @@ mod tests {
         );
 
         // Test with collect_statistics disabled
-        let file_statistics_cache = Arc::new(DefaultCache::new(DEFAULT_FILE_STATISTICS_MEMORY_LIMIT));
+        let file_statistics_cache =
+            Arc::new(DefaultCache::new(DEFAULT_FILE_STATISTICS_MEMORY_LIMIT));
         let cache_config = CacheManagerConfig::default()
             .with_file_statistics_cache(Some(file_statistics_cache.clone()));
         let runtime = RuntimeEnvBuilder::new()

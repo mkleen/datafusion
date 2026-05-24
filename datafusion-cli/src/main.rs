@@ -441,6 +441,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use datafusion::execution::cache::cache::DefaultCache;
     use datafusion::{
         common::test_util::batches_to_string,
         execution::cache::cache_manager::CacheManagerConfig,
@@ -449,7 +450,6 @@ mod tests {
     use insta::assert_snapshot;
     use object_store::memory::InMemory;
     use url::Url;
-    use datafusion::execution::cache::cache::DefaultCache;
 
     fn assert_conversion(input: &str, expected: Result<usize, String>) {
         let result = extract_memory_pool_size(input);
@@ -701,10 +701,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_files_cache() -> Result<(), DataFusionError> {
-        let list_files_cache = Arc::new(DefaultCache::with_ttl(
-            1024,
-            Some(Duration::from_secs(1)),
-        ));
+        let list_files_cache =
+            Arc::new(DefaultCache::with_ttl(1024, Some(Duration::from_secs(1))));
 
         let rt = RuntimeEnvBuilder::new()
             .with_cache_manager(

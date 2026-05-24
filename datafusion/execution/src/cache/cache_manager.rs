@@ -15,14 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::cache::{Cache, CacheValue};
-use crate::cache::file_statistics_cache::{
-    DEFAULT_FILE_STATISTICS_MEMORY_LIMIT,
+pub use super::list_files_cache::{
+    DEFAULT_LIST_FILES_CACHE_MEMORY_LIMIT, DEFAULT_LIST_FILES_CACHE_TTL,
 };
+use crate::cache::cache::DefaultCache;
+use crate::cache::file_statistics_cache::DEFAULT_FILE_STATISTICS_MEMORY_LIMIT;
 use crate::cache::list_files_cache::TableScopedPath;
-use datafusion_common::{HashMap, TableReference};
+use crate::cache::{Cache, CacheValue};
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 use datafusion_common::stats::Precision;
+use datafusion_common::{HashMap, TableReference};
 use datafusion_common::{Result, Statistics};
 use datafusion_physical_expr_common::sort_expr::LexOrdering;
 use object_store::ObjectMeta;
@@ -32,10 +34,6 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
-use crate::cache::cache::DefaultCache;
-pub use super::list_files_cache::{
-    DEFAULT_LIST_FILES_CACHE_MEMORY_LIMIT, DEFAULT_LIST_FILES_CACHE_TTL,
-};
 
 /// Cached metadata for a file, including statistics and ordering.
 ///
@@ -77,9 +75,6 @@ impl CachedFileMetadata {
 pub type FileStatisticsCache = dyn Cache<TableScopedPath, CachedFileMetadata>;
 pub type ListFilesCache = dyn Cache<TableScopedPath, CachedFileList>;
 pub type FileMetadataCache = dyn Cache<Path, CachedFileMetadataEntry>;
-
-
-
 
 impl DFHeapSize for CachedFileMetadata {
     fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
@@ -177,7 +172,6 @@ impl From<Vec<ObjectMeta>> for CachedFileList {
     }
 }
 
-
 /// Generic file-embedded metadata used with [`FileMetadataCache`].
 ///
 /// For example, Parquet footers and page metadata can be represented
@@ -236,7 +230,6 @@ impl Debug for CachedFileMetadataEntry {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Represents information about a cached metadata entry.
 /// This is used to expose the metadata cache contents to outside modules.
@@ -266,24 +259,23 @@ pub struct CacheManager {
 
 impl CacheManager {
     pub fn try_new(config: &CacheManagerConfig) -> Result<Arc<Self>> {
-        let file_statistic_cache: Option<Arc<FileStatisticsCache>> = match &config
-            .file_statistics_cache
-        {
-            Some(fsc) if config.file_statistics_cache_limit > 0 => {
-                fsc.update_cache_limit(config.file_statistics_cache_limit);
-                Some(Arc::clone(fsc))
-            }
-            None if config.file_statistics_cache_limit > 0 => Some(Arc::new(
-                DefaultCache::<TableScopedPath, CachedFileMetadata>::new(
-                    config.file_statistics_cache_limit,
-                )
+        let file_statistic_cache: Option<Arc<FileStatisticsCache>> =
+            match &config.file_statistics_cache {
+                Some(fsc) if config.file_statistics_cache_limit > 0 => {
+                    fsc.update_cache_limit(config.file_statistics_cache_limit);
+                    Some(Arc::clone(fsc))
+                }
+                None if config.file_statistics_cache_limit > 0 => Some(Arc::new(
+                    DefaultCache::<TableScopedPath, CachedFileMetadata>::new(
+                        config.file_statistics_cache_limit,
+                    )
                     .with_name("DefaultFileStatisticsCache"),
-            )),
-            _ => None,
-        };
+                )),
+                _ => None,
+            };
 
-        let list_files_cache: Option<Arc<ListFilesCache>>  = match &config
-            .list_files_cache {
+        let list_files_cache: Option<Arc<ListFilesCache>> = match &config.list_files_cache
+        {
             Some(lfc) if config.list_files_cache_limit > 0 => {
                 // the cache memory limit or ttl might have changed, ensure they are updated
                 lfc.update_cache_limit(config.list_files_cache_limit);
@@ -298,7 +290,7 @@ impl CacheManager {
                     config.list_files_cache_limit,
                     config.list_files_cache_ttl,
                 )
-                    .with_name("DefaultListFilesCache"),
+                .with_name("DefaultListFilesCache"),
             )),
             _ => None,
         };
@@ -307,9 +299,7 @@ impl CacheManager {
             .file_metadata_cache
             .as_ref()
             .map(Arc::clone)
-            .unwrap_or_else(|| {
-                Arc::new(DefaultCache::new(config.metadata_cache_limit))
-            });
+            .unwrap_or_else(|| Arc::new(DefaultCache::new(config.metadata_cache_limit)));
 
         // the cache memory limit might have changed, ensure the limit is updated
         file_metadata_cache.update_cache_limit(config.metadata_cache_limit);
@@ -426,10 +416,7 @@ impl CacheManagerConfig {
     /// Set the cache for listing files.
     ///
     /// Default is `None` (disabled).
-    pub fn with_list_files_cache(
-        mut self,
-        cache: Option<Arc<ListFilesCache>>,
-    ) -> Self {
+    pub fn with_list_files_cache(mut self, cache: Option<Arc<ListFilesCache>>) -> Self {
         self.list_files_cache = cache;
         self
     }
@@ -478,8 +465,7 @@ mod tests {
     #[test]
     fn test_ttl_preserved_when_not_set_in_config() {
         // Create a cache with TTL = 1 second
-        let list_file_cache =
-            DefaultCache::with_ttl(1024, Some(Duration::from_secs(1)));
+        let list_file_cache = DefaultCache::with_ttl(1024, Some(Duration::from_secs(1)));
 
         // Verify the cache has TTL set initially
         assert_eq!(
@@ -515,8 +501,7 @@ mod tests {
     #[test]
     fn test_ttl_overridden_when_set_in_config() {
         // Create a cache with TTL = 1 second
-        let list_file_cache =
-            DefaultCache::with_ttl(1024, Some(Duration::from_secs(1)));
+        let list_file_cache = DefaultCache::with_ttl(1024, Some(Duration::from_secs(1)));
 
         // Put cache in config WITH a different TTL set
         let config = CacheManagerConfig::default()
