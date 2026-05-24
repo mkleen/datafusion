@@ -16,7 +16,6 @@
 // under the License.
 
 use crate::cache::{Cache, CacheAccessor, CacheValue};
-use crate::cache::DefaultListFilesCache;
 use crate::cache::file_statistics_cache::{
     DEFAULT_FILE_STATISTICS_MEMORY_LIMIT,
     DefaultFilesMetadataCache,
@@ -78,6 +77,9 @@ impl CachedFileMetadata {
 }
 
 pub type FileStatisticsCache = dyn Cache<TableScopedPath, CachedFileMetadata>;
+pub type ListFilesCache = dyn Cache<TableScopedPath, CachedFileList>;
+
+
 
 impl DFHeapSize for CachedFileMetadata {
     fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
@@ -175,37 +177,6 @@ impl From<Vec<ObjectMeta>> for CachedFileList {
     }
 }
 
-/// Cache for storing the [`ObjectMeta`]s that result from listing a path
-///
-/// Listing a path means doing an object store "list" operation or `ls`
-/// command on the local filesystem. This operation can be expensive,
-/// especially when done over remote object stores.
-///
-/// The cache key is always the table's base path, ensuring a stable cache key.
-/// The cached value is a [`CachedFileList`] containing the files and a timestamp.
-///
-/// Partition filtering is done after retrieval using [`CachedFileList::files_matching_prefix`].
-///
-/// See [`crate::runtime_env::RuntimeEnv`] for more details.
-pub trait ListFilesCache: CacheAccessor<TableScopedPath, CachedFileList> {
-    /// Returns the cache's memory limit in bytes.
-    fn cache_limit(&self) -> usize;
-
-    /// Returns the TTL (time-to-live) for cache entries, if configured.
-    fn cache_ttl(&self) -> Option<Duration>;
-
-    /// Updates the cache with a new memory limit in bytes.
-    fn update_cache_limit(&self, limit: usize);
-
-    /// Updates the cache with a new TTL (time-to-live).
-    fn update_cache_ttl(&self, ttl: Option<Duration>);
-
-    /// Retrieves the information about the entries currently cached.
-    fn list_entries(&self) -> HashMap<TableScopedPath, ListFilesEntry>;
-
-    /// Drop all entries for the given table reference.
-    fn drop_table_entries(&self, table_ref: &Option<TableReference>) -> Result<()>;
-}
 
 /// Generic file-embedded metadata used with [`FileMetadataCache`].
 ///
@@ -309,17 +280,12 @@ pub struct FileMetadataCacheEntry {
     pub extra: HashMap<String, String>,
 }
 
-impl Debug for dyn ListFilesCache {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Cache name: {} with length: {}", self.name(), self.len())
-    }
-}
-
 impl Debug for dyn FileMetadataCache {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Cache name: {} with length: {}", self.name(), self.len())
     }
 }
+
 
 /// Manages various caches used in DataFusion.
 ///
@@ -331,7 +297,7 @@ impl Debug for dyn FileMetadataCache {
 #[derive(Debug)]
 pub struct CacheManager {
     file_statistic_cache: Option<Arc<FileStatisticsCache>>,
-    list_files_cache: Option<Arc<dyn ListFilesCache>>,
+    list_files_cache: Option<Arc<ListFilesCache>>,
     file_metadata_cache: Arc<dyn FileMetadataCache>,
 }
 
@@ -353,7 +319,8 @@ impl CacheManager {
             _ => None,
         };
 
-        let list_files_cache = match &config.list_files_cache {
+        let list_files_cache: Option<Arc<ListFilesCache>>  = match &config
+            .list_files_cache {
             Some(lfc) if config.list_files_cache_limit > 0 => {
                 // the cache memory limit or ttl might have changed, ensure they are updated
                 lfc.update_cache_limit(config.list_files_cache_limit);
@@ -363,13 +330,13 @@ impl CacheManager {
                 }
                 Some(Arc::clone(lfc))
             }
-            None if config.list_files_cache_limit > 0 => {
-                let lfc: Arc<dyn ListFilesCache> = Arc::new(DefaultListFilesCache::new(
+            None if config.list_files_cache_limit > 0 => Some(Arc::new(
+                DefaultCache::<TableScopedPath, CachedFileList>::with_ttl(
                     config.list_files_cache_limit,
                     config.list_files_cache_ttl,
-                ));
-                Some(lfc)
-            }
+                )
+                    .with_name("DefaultListFilesCache"),
+            )),
             _ => None,
         };
 
@@ -404,7 +371,7 @@ impl CacheManager {
     }
 
     /// Get the cache for storing the result of listing [`ObjectMeta`]s under the same path.
-    pub fn get_list_files_cache(&self) -> Option<Arc<dyn ListFilesCache>> {
+    pub fn get_list_files_cache(&self) -> Option<Arc<ListFilesCache>> {
         self.list_files_cache.clone()
     }
 
@@ -448,7 +415,7 @@ pub struct CacheManagerConfig {
     /// Note that if this option is enabled, DataFusion will not see any updates to the underlying
     /// storage for at least `list_files_cache_ttl` duration.
     /// Default is enabled.
-    pub list_files_cache: Option<Arc<dyn ListFilesCache>>,
+    pub list_files_cache: Option<Arc<ListFilesCache>>,
     /// Limit of the `list_files_cache`, in bytes. Default: 1MiB.
     pub list_files_cache_limit: usize,
     /// The duration the list files cache will consider an entry valid after insertion. Note that
@@ -498,7 +465,7 @@ impl CacheManagerConfig {
     /// Default is `None` (disabled).
     pub fn with_list_files_cache(
         mut self,
-        cache: Option<Arc<dyn ListFilesCache>>,
+        cache: Option<Arc<ListFilesCache>>,
     ) -> Self {
         self.list_files_cache = cache;
         self
@@ -549,7 +516,7 @@ mod tests {
     fn test_ttl_preserved_when_not_set_in_config() {
         // Create a cache with TTL = 1 second
         let list_file_cache =
-            DefaultListFilesCache::new(1024, Some(Duration::from_secs(1)));
+            DefaultCache::with_ttl(1024, Some(Duration::from_secs(1)));
 
         // Verify the cache has TTL set initially
         assert_eq!(
@@ -586,7 +553,7 @@ mod tests {
     fn test_ttl_overridden_when_set_in_config() {
         // Create a cache with TTL = 1 second
         let list_file_cache =
-            DefaultListFilesCache::new(1024, Some(Duration::from_secs(1)));
+            DefaultCache::with_ttl(1024, Some(Duration::from_secs(1)));
 
         // Put cache in config WITH a different TTL set
         let config = CacheManagerConfig::default()

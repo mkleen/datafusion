@@ -33,65 +33,6 @@ use std::{
 };
 
 
-pub trait TimeProvider: Send + Sync + 'static {
-    fn now(&self) -> Instant;
-}
-
-#[derive(Debug, Default)]
-pub struct SystemTimeProvider;
-
-impl TimeProvider for SystemTimeProvider {
-    fn now(&self) -> Instant {
-        Instant::now()
-    }
-}
-
-/// Default implementation of [`ListFilesCache`]
-///
-/// Caches file metadata for file listing operations.
-///
-/// # Internal details
-///
-/// The `memory_limit` parameter controls the maximum size of the cache, which uses a Least
-/// Recently Used eviction algorithm. When adding a new entry, if the total number of entries in
-/// the cache exceeds `memory_limit`, the least recently used entries are evicted until the total
-/// size is lower than the `memory_limit`.
-///
-/// # Cache API
-///
-/// Uses `get` and `put` methods for cache operations. TTL validation is handled internally -
-/// expired entries return `None` from `get`.
-pub struct DefaultListFilesCache {
-    state: Mutex<DefaultListFilesCacheState>,
-    time_provider: Arc<dyn TimeProvider>,
-}
-
-impl Default for DefaultListFilesCache {
-    fn default() -> Self {
-        Self::new(DEFAULT_LIST_FILES_CACHE_MEMORY_LIMIT, None)
-    }
-}
-
-impl DefaultListFilesCache {
-    /// Creates a new instance of [`DefaultListFilesCache`].
-    ///
-    /// # Arguments
-    /// * `memory_limit` - The maximum size of the cache, in bytes.
-    /// * `ttl` - The TTL (time-to-live) of entries in the cache.
-    pub fn new(memory_limit: usize, ttl: Option<Duration>) -> Self {
-        Self {
-            state: Mutex::new(DefaultListFilesCacheState::new(memory_limit, ttl)),
-            time_provider: Arc::new(SystemTimeProvider),
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_time_provider(mut self, provider: Arc<dyn TimeProvider>) -> Self {
-        self.time_provider = provider;
-        self
-    }
-}
-
 #[derive(Clone, PartialEq, Debug)]
 pub struct ListFilesEntry {
     pub metas: CachedFileList,
@@ -151,25 +92,6 @@ pub struct TableScopedPath {
     pub path: Path,
 }
 
-/// Handles the inner state of the [`DefaultListFilesCache`] struct.
-pub struct DefaultListFilesCacheState {
-    lru_queue: LruQueue<TableScopedPath, ListFilesEntry>,
-    memory_limit: usize,
-    memory_used: usize,
-    ttl: Option<Duration>,
-}
-
-impl Default for DefaultListFilesCacheState {
-    fn default() -> Self {
-        Self {
-            lru_queue: LruQueue::new(),
-            memory_limit: DEFAULT_LIST_FILES_CACHE_MEMORY_LIMIT,
-            memory_used: 0,
-            ttl: DEFAULT_LIST_FILES_CACHE_TTL,
-        }
-    }
-}
-
 impl DFHeapSize for TableScopedPath {
     fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
         self.path.as_ref().heap_size(ctx) + self.table.heap_size(ctx)
@@ -183,216 +105,6 @@ impl Display for TableScopedPath {
         } else {
             write!(f, "{}", self.path)
         }
-    }
-}
-
-impl DefaultListFilesCacheState {
-    fn new(memory_limit: usize, ttl: Option<Duration>) -> Self {
-        Self {
-            lru_queue: LruQueue::new(),
-            memory_limit,
-            memory_used: 0,
-            ttl,
-        }
-    }
-
-    /// Gets an entry from the cache, checking for expiration.
-    ///
-    /// Returns the cached file list if it exists and hasn't expired.
-    /// If the entry has expired, it is removed from the cache.
-    fn get(&mut self, key: &TableScopedPath, now: Instant) -> Option<CachedFileList> {
-        let entry = self.lru_queue.get(key)?;
-
-        // Check expiration
-        if let Some(exp) = entry.expires
-            && now > exp
-        {
-            self.remove(key);
-            return None;
-        }
-
-        Some(entry.metas.clone())
-    }
-
-    /// Checks if the respective entry is currently cached.
-    ///
-    /// If the entry has expired by `now` it is removed from the cache.
-    ///
-    /// The LRU queue is not updated.
-    fn contains_key(&mut self, k: &TableScopedPath, now: Instant) -> bool {
-        let Some(entry) = self.lru_queue.peek(k) else {
-            return false;
-        };
-
-        match entry.expires {
-            Some(exp) if now > exp => {
-                self.remove(k);
-                false
-            }
-            _ => true,
-        }
-    }
-
-    /// Adds a new key-value pair to cache expiring at `now` + the TTL.
-    ///
-    /// This means that LRU entries might be evicted if required.
-    /// If the key is already in the cache, the previous entry is returned.
-    /// If the size of the entry is greater than the `memory_limit`, the value is not inserted.
-    fn put(
-        &mut self,
-        key: &TableScopedPath,
-        value: CachedFileList,
-        now: Instant,
-    ) -> Option<CachedFileList> {
-        let entry = ListFilesEntry::try_new(value, self.ttl, now)?;
-        let entry_size = entry.size_bytes;
-
-        // no point in trying to add this value to the cache if it cannot fit entirely
-        if entry_size > self.memory_limit {
-            return None;
-        }
-
-        // if the key is already in the cache, the old value is removed
-        let old_value = self.lru_queue.put(key.clone(), entry);
-        self.memory_used += entry_size;
-
-        if let Some(entry) = &old_value {
-            self.memory_used -= entry.size_bytes;
-        }
-
-        self.evict_entries();
-
-        old_value.map(|v| v.metas)
-    }
-
-    /// Evicts entries from the LRU cache until `memory_used` is lower than `memory_limit`.
-    fn evict_entries(&mut self) {
-        while self.memory_used > self.memory_limit {
-            if let Some(removed) = self.lru_queue.pop() {
-                self.memory_used -= removed.1.size_bytes;
-            } else {
-                // cache is empty while memory_used > memory_limit, cannot happen
-                debug_assert!(
-                    false,
-                    "cache is empty while memory_used > memory_limit, cannot happen"
-                );
-                return;
-            }
-        }
-    }
-
-    /// Removes an entry from the cache and returns it, if it exists.
-    fn remove(&mut self, k: &TableScopedPath) -> Option<CachedFileList> {
-        if let Some(entry) = self.lru_queue.remove(k) {
-            self.memory_used -= entry.size_bytes;
-            Some(entry.metas)
-        } else {
-            None
-        }
-    }
-
-    /// Returns the number of entries currently cached.
-    fn len(&self) -> usize {
-        self.lru_queue.len()
-    }
-
-    /// Removes all entries from the cache.
-    fn clear(&mut self) {
-        self.lru_queue.clear();
-        self.memory_used = 0;
-    }
-}
-
-impl CacheAccessor<TableScopedPath, CachedFileList> for DefaultListFilesCache {
-    fn get(&self, key: &TableScopedPath) -> Option<CachedFileList> {
-        let mut state = self.state.lock().unwrap();
-        let now = self.time_provider.now();
-        state.get(key, now)
-    }
-
-    fn put(
-        &self,
-        key: &TableScopedPath,
-        value: CachedFileList,
-    ) -> Option<CachedFileList> {
-        let mut state = self.state.lock().unwrap();
-        let now = self.time_provider.now();
-        state.put(key, value, now)
-    }
-
-    fn remove(&self, k: &TableScopedPath) -> Option<CachedFileList> {
-        let mut state = self.state.lock().unwrap();
-        state.remove(k)
-    }
-
-    fn contains_key(&self, k: &TableScopedPath) -> bool {
-        let mut state = self.state.lock().unwrap();
-        let now = self.time_provider.now();
-        state.contains_key(k, now)
-    }
-
-    fn len(&self) -> usize {
-        let state = self.state.lock().unwrap();
-        state.len()
-    }
-
-    fn clear(&self) {
-        let mut state = self.state.lock().unwrap();
-        state.clear();
-    }
-
-    fn name(&self) -> String {
-        String::from("DefaultListFilesCache")
-    }
-}
-
-impl ListFilesCache for DefaultListFilesCache {
-    fn cache_limit(&self) -> usize {
-        let state = self.state.lock().unwrap();
-        state.memory_limit
-    }
-
-    fn cache_ttl(&self) -> Option<Duration> {
-        let state = self.state.lock().unwrap();
-        state.ttl
-    }
-
-    fn update_cache_limit(&self, limit: usize) {
-        let mut state = self.state.lock().unwrap();
-        state.memory_limit = limit;
-        state.evict_entries();
-    }
-
-    fn update_cache_ttl(&self, ttl: Option<Duration>) {
-        let mut state = self.state.lock().unwrap();
-        state.ttl = ttl;
-        state.evict_entries();
-    }
-
-    fn list_entries(&self) -> HashMap<TableScopedPath, ListFilesEntry> {
-        let state = self.state.lock().unwrap();
-        let mut entries = HashMap::<TableScopedPath, ListFilesEntry>::new();
-        for (path, entry) in state.lru_queue.list_entries() {
-            entries.insert(path.clone(), entry.clone());
-        }
-        entries
-    }
-
-    fn drop_table_entries(
-        &self,
-        table_ref: &Option<TableReference>,
-    ) -> datafusion_common::Result<()> {
-        let mut state = self.state.lock().unwrap();
-        let mut table_paths = vec![];
-        for (path, _) in state.lru_queue.list_entries() {
-            if path.table == *table_ref {
-                table_paths.push(path.clone());
-            }
-        }
-        for path in table_paths {
-            state.remove(&path);
-        }
-        Ok(())
     }
 }
 
@@ -1002,7 +714,7 @@ mod tests {
 
     #[test]
     fn test_prefix_filtering() {
-        let cache = DefaultListFilesCache::new(100000, None);
+        let cache = DefaultCache::new(100000);
 
         // Create files for a partitioned table
         let table_base = Path::from("my_table");
@@ -1050,7 +762,7 @@ mod tests {
 
     #[test]
     fn test_prefix_no_matching_files() {
-        let cache = DefaultListFilesCache::new(100000, None);
+        let cache = DefaultCache::new(100000);
 
         let table_base = Path::from("my_table");
         let files = vec![
@@ -1074,7 +786,7 @@ mod tests {
 
     #[test]
     fn test_nested_partitions() {
-        let cache = DefaultListFilesCache::new(100000, None);
+        let cache = DefaultCache::new(100000);
 
         let table_base = Path::from("events");
         let files = vec![
@@ -1113,7 +825,7 @@ mod tests {
 
     #[test]
     fn test_drop_table_entries() {
-        let cache = DefaultListFilesCache::default();
+        let cache = DefaultCache::new(DEFAULT_LIST_FILES_CACHE_MEMORY_LIMIT);
 
         let table_ref1 = Some(TableReference::from("table1"));
         let table_ref2 = Some(TableReference::from("table2"));

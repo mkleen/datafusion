@@ -27,7 +27,6 @@ use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 use datafusion_common::instant::Instant;
 use datafusion_common::{HashMap, TableReference};
 pub use file_metadata_cache::DefaultFilesMetadataCache;
-pub use list_files_cache::DefaultListFilesCache;
 pub use list_files_cache::ListFilesEntry;
 pub use list_files_cache::TableScopedPath;
 use std::fmt::Debug;
