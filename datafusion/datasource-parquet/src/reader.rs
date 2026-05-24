@@ -182,13 +182,13 @@ impl ParquetFileReaderFactory for DefaultParquetFileReaderFactory {
 #[derive(Debug)]
 pub struct CachedParquetFileReaderFactory {
     store: Arc<dyn ObjectStore>,
-    metadata_cache: Arc<dyn FileMetadataCache>,
+    metadata_cache: Arc<FileMetadataCache>,
 }
 
 impl CachedParquetFileReaderFactory {
     pub fn new(
         store: Arc<dyn ObjectStore>,
-        metadata_cache: Arc<dyn FileMetadataCache>,
+        metadata_cache: Arc<FileMetadataCache>,
     ) -> Self {
         Self {
             store,
@@ -241,7 +241,7 @@ pub struct CachedParquetFileReader {
     store: Arc<dyn ObjectStore>,
     pub inner: ParquetObjectReader,
     partitioned_file: PartitionedFile,
-    metadata_cache: Arc<dyn FileMetadataCache>,
+    metadata_cache: Arc<FileMetadataCache>,
     metadata_size_hint: Option<usize>,
 }
 
@@ -251,7 +251,7 @@ impl CachedParquetFileReader {
         store: Arc<dyn ObjectStore>,
         inner: ParquetObjectReader,
         partitioned_file: PartitionedFile,
-        metadata_cache: Arc<dyn FileMetadataCache>,
+        metadata_cache: Arc<FileMetadataCache>,
         metadata_size_hint: Option<usize>,
     ) -> Self {
         Self {

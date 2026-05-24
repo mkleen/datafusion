@@ -29,10 +29,7 @@ use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::prelude::SessionContext;
 use datafusion_common::DFSchema;
 use datafusion_common::stats::Precision;
-use datafusion_execution::cache::DefaultListFilesCache;
-use datafusion_execution::cache::cache_manager::{
-    CacheManagerConfig, FileStatisticsCache,
-};
+use datafusion_execution::cache::cache_manager::{CacheManagerConfig, FileStatisticsCache, ListFilesCache, DEFAULT_LIST_FILES_CACHE_MEMORY_LIMIT};
 use datafusion_execution::cache::cache::DefaultCache;
 use datafusion_execution::config::SessionConfig;
 use datafusion_execution::runtime_env::RuntimeEnvBuilder;
@@ -259,12 +256,12 @@ async fn get_listing_table(
 
 fn get_cache_runtime_state() -> (
     Arc<FileStatisticsCache>,
-    Arc<DefaultListFilesCache>,
+    Arc<ListFilesCache>,
     SessionState,
 ) {
     let cache_config = CacheManagerConfig::default();
     let file_static_cache = Arc::new(DefaultCache::new(DEFAULT_FILE_STATISTICS_MEMORY_LIMIT));
-    let list_file_cache = Arc::new(DefaultListFilesCache::default());
+    let list_file_cache = Arc::new(DefaultCache::new(DEFAULT_LIST_FILES_CACHE_MEMORY_LIMIT));
 
     let cache_config = cache_config
         .with_file_statistics_cache(Some(file_static_cache.clone()))

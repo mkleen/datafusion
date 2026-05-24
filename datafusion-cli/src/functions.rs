@@ -547,15 +547,15 @@ impl TableFunctionImpl for MetadataCacheFunc {
         for (path, entry) in cached_entries {
             path_arr.push(path.to_string());
             file_modified_arr
-                .push(Some(entry.object_meta.last_modified.timestamp_millis()));
-            file_size_bytes_arr.push(entry.object_meta.size);
-            e_tag_arr.push(entry.object_meta.e_tag);
-            version_arr.push(entry.object_meta.version);
+                .push(Some(entry.value.meta.last_modified.timestamp_millis()));
+            file_size_bytes_arr.push(entry.value.meta.size);
+            e_tag_arr.push(entry.value.meta.e_tag);
+            version_arr.push(entry.value.meta.version);
             metadata_size_bytes.push(entry.size_bytes as u64);
             hits_arr.push(entry.hits as u64);
 
-            let mut extra = entry
-                .extra
+            let mut extra = entry.value.file_metadata
+                .extra_info()
                 .iter()
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect::<Vec<_>>();

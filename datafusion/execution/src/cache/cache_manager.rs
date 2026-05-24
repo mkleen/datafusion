@@ -15,12 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::cache::{Cache, CacheAccessor, CacheValue};
+use crate::cache::{Cache, CacheValue};
 use crate::cache::file_statistics_cache::{
     DEFAULT_FILE_STATISTICS_MEMORY_LIMIT,
-    DefaultFilesMetadataCache,
 };
-use crate::cache::list_files_cache::ListFilesEntry;
 use crate::cache::list_files_cache::TableScopedPath;
 use datafusion_common::{HashMap, TableReference};
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
@@ -78,6 +76,8 @@ impl CachedFileMetadata {
 
 pub type FileStatisticsCache = dyn Cache<TableScopedPath, CachedFileMetadata>;
 pub type ListFilesCache = dyn Cache<TableScopedPath, CachedFileList>;
+pub type FileMetadataCache = dyn Cache<Path, CachedFileMetadataEntry>;
+
 
 
 
@@ -236,36 +236,6 @@ impl Debug for CachedFileMetadataEntry {
     }
 }
 
-/// Cache for file-embedded metadata.
-///
-/// This cache stores per-file metadata in the form of [`CachedFileMetadataEntry`],
-/// which includes the [`ObjectMeta`] for validation.
-///
-/// For example, the built in [`ListingTable`] uses this cache to avoid parsing
-/// Parquet footers multiple times for the same file.
-///
-/// DataFusion provides a default implementation, [`DefaultFilesMetadataCache`],
-/// and users can also provide their own implementations to implement custom
-/// caching strategies.
-///
-/// The typical usage pattern is:
-/// 1. Call `get(path)` to check for cached value
-/// 2. If `Some(cached)`, validate with `cached.is_valid_for(&current_meta)`
-/// 3. If invalid or missing, compute new value and call `put(path, new_value)`
-///
-/// See [`crate::runtime_env::RuntimeEnv`] for more details.
-///
-/// [`ListingTable`]: https://docs.rs/datafusion/latest/datafusion/datasource/listing/struct.ListingTable.html
-pub trait FileMetadataCache: CacheAccessor<Path, CachedFileMetadataEntry> {
-    /// Returns the cache's memory limit in bytes.
-    fn cache_limit(&self) -> usize;
-
-    /// Updates the cache with a new memory limit in bytes.
-    fn update_cache_limit(&self, limit: usize);
-
-    /// Retrieves the information about the entries currently cached.
-    fn list_entries(&self) -> HashMap<Path, FileMetadataCacheEntry>;
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Represents information about a cached metadata entry.
@@ -280,13 +250,6 @@ pub struct FileMetadataCacheEntry {
     pub extra: HashMap<String, String>,
 }
 
-impl Debug for dyn FileMetadataCache {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Cache name: {} with length: {}", self.name(), self.len())
-    }
-}
-
-
 /// Manages various caches used in DataFusion.
 ///
 /// Following DataFusion design principles, DataFusion provides default cache
@@ -298,7 +261,7 @@ impl Debug for dyn FileMetadataCache {
 pub struct CacheManager {
     file_statistic_cache: Option<Arc<FileStatisticsCache>>,
     list_files_cache: Option<Arc<ListFilesCache>>,
-    file_metadata_cache: Arc<dyn FileMetadataCache>,
+    file_metadata_cache: Arc<FileMetadataCache>,
 }
 
 impl CacheManager {
@@ -345,7 +308,7 @@ impl CacheManager {
             .as_ref()
             .map(Arc::clone)
             .unwrap_or_else(|| {
-                Arc::new(DefaultFilesMetadataCache::new(config.metadata_cache_limit))
+                Arc::new(DefaultCache::new(config.metadata_cache_limit))
             });
 
         // the cache memory limit might have changed, ensure the limit is updated
@@ -388,7 +351,7 @@ impl CacheManager {
     }
 
     /// Get the file embedded metadata cache.
-    pub fn get_file_metadata_cache(&self) -> Arc<dyn FileMetadataCache> {
+    pub fn get_file_metadata_cache(&self) -> Arc<FileMetadataCache> {
         Arc::clone(&self.file_metadata_cache)
     }
 
@@ -425,7 +388,7 @@ pub struct CacheManagerConfig {
     /// Cache of file-embedded metadata, used to avoid reading it multiple times when processing a
     /// data file (e.g., Parquet footer and page metadata).
     /// If not provided, the [`CacheManager`] will create a [`DefaultFilesMetadataCache`].
-    pub file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
+    pub file_metadata_cache: Option<Arc<FileMetadataCache>>,
     /// Limit of the file-embedded metadata cache, in bytes.
     pub metadata_cache_limit: usize,
 }
@@ -492,7 +455,7 @@ impl CacheManagerConfig {
     /// Default is a [`DefaultFilesMetadataCache`].
     pub fn with_file_metadata_cache(
         mut self,
-        cache: Option<Arc<dyn FileMetadataCache>>,
+        cache: Option<Arc<FileMetadataCache>>,
     ) -> Self {
         self.file_metadata_cache = cache;
         self

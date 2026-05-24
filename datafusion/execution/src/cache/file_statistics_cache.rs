@@ -20,7 +20,6 @@ pub use crate::cache::cache_manager::{
 };
 use crate::cache::{CacheAccessor, CacheValue, TableScopedPath};
 
-pub use crate::cache::DefaultFilesMetadataCache;
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 
 
