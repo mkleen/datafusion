@@ -17,7 +17,6 @@
 
 use std::sync::Mutex;
 
-use crate::cache::cache_manager::FileMetadataCache;
 use datafusion_common::HashMap;
 use object_store::path::Path;
 
@@ -28,9 +27,9 @@ mod tests {
     use crate::cache::cache::DefaultCache;
     use crate::cache::cache_manager::{CachedFileMetadataEntry, FileMetadata};
     use crate::cache::{Cache, CacheAccessor, CacheEntryInfo};
-    use datafusion_common::HashMap;
     use object_store::ObjectMeta;
     use object_store::path::Path;
+    use datafusion_common::HashMap;
 
     pub struct TestFileMetadata {
         metadata: String,

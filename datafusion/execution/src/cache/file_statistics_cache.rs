@@ -390,9 +390,9 @@ mod tests {
         let mut ctx = DFHeapSizeCtx::default();
 
         let limit_for_2_entries = meta_1.location.as_ref().heap_size(&mut ctx)
-            + value_1.size(&mut ctx)
+            + value_1.heap_size(&mut ctx)
             + meta_2.location.as_ref().heap_size(&mut ctx)
-            + value_2.size(&mut ctx);
+            + value_2.heap_size(&mut ctx);
 
         // create a cache with a limit which fits exactly 2 entries
         let cache = DefaultCache::new(limit_for_2_entries);
@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(cache.len(), 1);
         assert_eq!(
             cache.memory_used(),
-            meta_3.location.as_ref().heap_size(&mut ctx) + value_3.size(&mut ctx)
+            meta_3.location.as_ref().heap_size(&mut ctx) + value_3.heap_size(&mut ctx)
         );
 
         cache.clear();
@@ -459,7 +459,7 @@ mod tests {
     fn test_cache_rejects_entry_which_is_too_large() {
         let (meta, value) = create_cached_file_metadata_with_stats("test1.parquet");
         let mut ctx = DFHeapSizeCtx::default();
-        let limit_less_than_the_entry = value.size(&mut ctx) - 1;
+        let limit_less_than_the_entry = value.heap_size(&mut ctx) - 1;
 
         // create a cache with a size less than the entry
         let cache = DefaultCache::new(limit_less_than_the_entry);

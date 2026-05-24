@@ -24,7 +24,7 @@ use crate::cache::list_files_cache::TableScopedPath;
 use crate::cache::{Cache, CacheValue};
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 use datafusion_common::stats::Precision;
-use datafusion_common::{HashMap, TableReference};
+use datafusion_common::HashMap;
 use datafusion_common::{Result, Statistics};
 use datafusion_physical_expr_common::sort_expr::LexOrdering;
 use object_store::ObjectMeta;
