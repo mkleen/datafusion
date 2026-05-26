@@ -57,6 +57,11 @@ struct CacheValueEntry<V> {
     expires: Option<Instant>,
 }
 
+/// Mutable inner state of a [`DefaultCache`].
+///
+/// Held behind a [`Mutex`] in [`DefaultCache`] so concurrent callers can share
+/// a single cache. Tracks the LRU ordering, per-key hit counts, and the
+/// running memory accounting used to enforce `memory_limit`.
 struct DefaultCacheState<K: CacheKey, V: CacheValue> {
     lru_queue: LruQueue<K, CacheValueEntry<V>>,
     hits: HashMap<K, usize>,
@@ -172,6 +177,9 @@ impl<K: CacheKey, V: CacheValue> DefaultCacheState<K, V> {
 /// limit are rejected (and any prior entry under the same key is removed).
 /// When a TTL is configured, the expiration is stamped onto each entry at
 /// insertion time and checked lazily on access.
+///
+/// Concurrency is handled internally via a [`Mutex`], so a single instance
+/// can be shared across threads through an [`Arc`].
 pub struct DefaultCache<K: CacheKey, V: CacheValue> {
     state: Mutex<DefaultCacheState<K, V>>,
     time_provider: Arc<dyn CacheTimeProvider>,
@@ -195,12 +203,17 @@ impl<K: CacheKey, V: CacheValue> DefaultCache<K, V> {
     }
 
     /// Override the cache name reported by [`CacheAccessor::name`].
+    ///
+    /// Useful for distinguishing instances in logs and diagnostics when
+    /// several caches of the same type coexist.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
     }
 
     /// Override the time source used to stamp and check TTLs.
+    ///
+    /// Primarily intended for tests that need to advance time deterministically.
     pub fn with_time_provider(mut self, provider: Arc<dyn CacheTimeProvider>) -> Self {
         self.time_provider = provider;
         self

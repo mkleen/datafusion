@@ -18,8 +18,7 @@
 pub use crate::cache::cache_manager::{
     CachedFileMetadata, FileStatisticsCache, FileStatisticsCacheEntry,
 };
-use crate::cache::{CacheValue};
-
+use crate::cache::{CacheAccessor, CacheValue, TableScopedPath};
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 
 pub const DEFAULT_FILE_STATISTICS_MEMORY_LIMIT: usize = 20 * 1024 * 1024; // 20MiB
@@ -463,6 +462,7 @@ mod tests {
 
         // create a cache with a size less than the entry
         let cache = DefaultCache::new(limit_less_than_the_entry);
+
 
         let path_1 = TableScopedPath {
             path: meta.location.clone(),
