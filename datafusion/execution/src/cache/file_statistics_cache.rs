@@ -18,7 +18,7 @@
 pub use crate::cache::cache_manager::{
     CachedFileMetadata, FileStatisticsCache, FileStatisticsCacheEntry,
 };
-use crate::cache::{CacheAccessor, CacheValue, TableScopedPath};
+use crate::cache::{CacheValue};
 
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 
@@ -35,7 +35,7 @@ mod tests {
     use super::*;
     use crate::cache::cache::DefaultCache;
     use crate::cache::cache_manager::CachedFileMetadata;
-    use crate::cache::{Cache, CacheEntryInfo};
+    use crate::cache::{Cache, CacheAccessor, CacheEntryInfo, TableScopedPath};
     use arrow::array::{Int32Array, ListArray, RecordBatch};
     use arrow::buffer::{OffsetBuffer, ScalarBuffer};
     use arrow::datatypes::{DataType, Field, Schema, TimeUnit};

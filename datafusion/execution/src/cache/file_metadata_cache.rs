@@ -15,10 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use std::sync::Mutex;
-
-use datafusion_common::HashMap;
-use object_store::path::Path;
 
 #[cfg(test)]
 mod tests {

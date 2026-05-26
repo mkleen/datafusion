@@ -15,45 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::cache::{CacheAccessor, cache_manager::CachedFileList};
+use crate::cache::{cache_manager::CachedFileList};
 
 use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 use datafusion_common::instant::Instant;
-use datafusion_common::{HashMap, TableReference};
+use datafusion_common::TableReference;
 use object_store::{ObjectMeta, path::Path};
 use std::fmt::{Debug, Display, Formatter};
-use std::mem::size_of;
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::time::Duration;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct ListFilesEntry {
     pub metas: CachedFileList,
     pub size_bytes: usize,
     pub expires: Option<Instant>,
-}
-
-impl ListFilesEntry {
-    fn try_new(
-        cached_file_list: CachedFileList,
-        ttl: Option<Duration>,
-        now: Instant,
-    ) -> Option<Self> {
-        let size_bytes = (cached_file_list.files.capacity() * size_of::<ObjectMeta>())
-            + cached_file_list
-                .files
-                .iter()
-                .map(meta_heap_bytes)
-                .reduce(|acc, b| acc + b)?;
-
-        Some(Self {
-            metas: cached_file_list,
-            size_bytes,
-            expires: ttl.map(|t| now + t),
-        })
-    }
 }
 
 /// Calculates the number of bytes an [`ObjectMeta`] occupies in the heap.
@@ -105,11 +80,34 @@ impl Display for TableScopedPath {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use super::*;
     use crate::cache::cache::{CacheTimeProvider, DefaultCache};
-    use crate::cache::{Cache, CacheEntryInfo, CacheKey, CacheValue};
+    use crate::cache::{CacheAccessor, Cache, CacheEntryInfo, CacheKey, CacheValue};
     use chrono::DateTime;
     use std::thread;
+    use datafusion_common::HashMap;
+
+    impl ListFilesEntry {
+        fn try_new(
+            cached_file_list: CachedFileList,
+            ttl: Option<Duration>,
+            now: Instant,
+        ) -> Option<Self> {
+            let size_bytes = (cached_file_list.files.capacity() * size_of::<ObjectMeta>())
+                + cached_file_list
+                .files
+                .iter()
+                .map(meta_heap_bytes)
+                .reduce(|acc, b| acc + b)?;
+
+            Some(Self {
+                metas: cached_file_list,
+                size_bytes,
+                expires: ttl.map(|t| now + t),
+            })
+        }
+    }
 
     struct MockTimeProvider {
         base: Instant,
