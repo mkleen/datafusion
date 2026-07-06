@@ -40,19 +40,20 @@
 //! ```
 
 use crate::stats::Precision;
-use crate::{ColumnStatistics, ScalarValue, Statistics, TableReference};
+use crate::{ColumnStatistics, DFSchema, ScalarValue, Statistics, TableReference};
 use arrow::array::{
-    Array, FixedSizeListArray, LargeListArray, LargeListViewArray, ListArray,
-    ListViewArray, MapArray, StructArray,
+    Array, ArrayData, ArrayRef, FixedSizeListArray, LargeListArray, LargeListViewArray,
+    ListArray, ListViewArray, MapArray, RecordBatch, StructArray,
 };
 use arrow::datatypes::{
     DataType, Field, Fields, IntervalDayTime, IntervalMonthDayNano, IntervalUnit,
     TimeUnit, UnionFields, UnionMode, i256,
 };
+use arrow_schema::Schema;
 use chrono::{DateTime, Utc};
 use half::f16;
 use hashbrown::HashSet;
-use std::collections::HashMap;
+use std::collections::{BinaryHeap, HashMap};
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -245,43 +246,69 @@ impl<T: DFHeapSize> DFHeapSize for Vec<T> {
     }
 }
 
+impl<T: DFHeapSize + Ord> DFHeapSize for BinaryHeap<T> {
+    fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
+        // The underlying data is stored in a Vec, which is not accessible
+        // from the outside  therefore  minic the heapsize estimation for
+        // Vec
+        let item_size = size_of::<T>();
+        (self.capacity() * item_size) +
+            // add any heap allocations by contents
+            self.iter().map(|t| t.heap_size(ctx)).sum::<usize>()
+    }
+}
+
+/// Approximates the number of bytes a hashbrown-style table with the given
+/// `capacity` and per-entry (key + value) size allocates for its buckets,
+/// excluding any heap allocations owned by the keys/values themselves.
+///
+/// `HashMap`/hashbrown don't provide a way to get their heap size directly,
+/// so this is an approximation based on the behavior of hashbrown::HashMap
+/// as at version 0.16.0, and may become inaccurate if the implementation
+/// changes.
+fn hashbrown_table_bytes(capacity: usize, key_val_size: usize) -> usize {
+    if capacity == 0 {
+        return 0;
+    }
+
+    // Overhead for the control tags group, which may be smaller depending on architecture
+    let group_size = 16;
+    // 1 byte of metadata stored per bucket.
+    let metadata_size = 1;
+
+    // Compute the number of buckets for the capacity. Based on hashbrown's capacity_to_buckets
+    let buckets = if capacity < 15 {
+        let min_cap = match key_val_size {
+            0..=1 => 14,
+            2..=3 => 7,
+            _ => 3,
+        };
+        let cap = min_cap.max(capacity);
+        if cap < 4 {
+            4
+        } else if cap < 8 {
+            8
+        } else {
+            16
+        }
+    } else {
+        (capacity.saturating_mul(8) / 7).next_power_of_two()
+    };
+
+    group_size + (buckets * (key_val_size + metadata_size))
+}
+
 impl<K: DFHeapSize, V: DFHeapSize> DFHeapSize for HashMap<K, V> {
     fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
-        let capacity = self.capacity();
-        if capacity == 0 {
-            return 0;
-        }
+        hashbrown_table_bytes(self.capacity(), size_of::<(K, V)>())
+            + self.keys().map(|k| k.heap_size(ctx)).sum::<usize>()
+            + self.values().map(|v| v.heap_size(ctx)).sum::<usize>()
+    }
+}
 
-        // HashMap doesn't provide a way to get its heap size, so this is an approximation based on
-        // the behavior of hashbrown::HashMap as at version 0.16.0, and may become inaccurate
-        // if the implementation changes.
-        let key_val_size = size_of::<(K, V)>();
-        // Overhead for the control tags group, which may be smaller depending on architecture
-        let group_size = 16;
-        // 1 byte of metadata stored per bucket.
-        let metadata_size = 1;
-
-        // Compute the number of buckets for the capacity. Based on hashbrown's capacity_to_buckets
-        let buckets = if capacity < 15 {
-            let min_cap = match key_val_size {
-                0..=1 => 14,
-                2..=3 => 7,
-                _ => 3,
-            };
-            let cap = min_cap.max(capacity);
-            if cap < 4 {
-                4
-            } else if cap < 8 {
-                8
-            } else {
-                16
-            }
-        } else {
-            (capacity.saturating_mul(8) / 7).next_power_of_two()
-        };
-
-        group_size
-            + (buckets * (key_val_size + metadata_size))
+impl<K: DFHeapSize, V: DFHeapSize, S> DFHeapSize for hashbrown::HashMap<K, V, S> {
+    fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
+        hashbrown_table_bytes(self.capacity(), size_of::<(K, V)>())
             + self.keys().map(|k| k.heap_size(ctx)).sum::<usize>()
             + self.values().map(|v| v.heap_size(ctx)).sum::<usize>()
     }
@@ -333,6 +360,21 @@ impl DFHeapSize for Arc<dyn DFHeapSize> {
 
         // Arc stores weak and strong counts on the heap alongside an instance of T
         2 * size_of::<usize>() + size_of_val(self.as_ref()) + self.as_ref().heap_size(ctx)
+    }
+}
+
+impl DFHeapSize for Arc<dyn Array> {
+    fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
+        let ptr = Arc::as_ptr(self) as *const i32 as usize;
+
+        if !ctx.seen.insert(ptr) {
+            return 0;
+        }
+
+        // Arc stores weak and strong counts on the heap alongside an instance of T
+        2 * size_of::<usize>()
+            + size_of_val(self.as_ref())
+            + self.as_ref().to_data().heap_size(ctx)
     }
 }
 
@@ -478,6 +520,43 @@ impl_array_heap_size!(
     MapArray,
 );
 
+impl DFHeapSize for Schema {
+    fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
+        self.fields().heap_size(ctx) + self.metadata().heap_size(ctx)
+    }
+}
+
+impl DFHeapSize for RecordBatch {
+    fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
+        self.schema().heap_size(ctx) + self.columns().to_vec().heap_size(ctx)
+    }
+}
+
+impl DFHeapSize for ArrayData {
+    fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
+        let mut total_size: usize = 0;
+        // Deduplicate the underlying buffers, only account
+        // the buffer it hasn't been accounted yet
+        for buffer in self.buffers() {
+            if ctx.seen.insert(buffer.data_ptr().addr().get()) {
+                total_size += buffer.capacity();
+            }
+        }
+        if let Some(null_buffer) = self.nulls()
+            && ctx
+                .seen
+                .insert(null_buffer.inner().inner().data_ptr().addr().get())
+        {
+            total_size += null_buffer.inner().inner().capacity();
+        }
+
+        for child in self.child_data() {
+            total_size += child.heap_size(ctx);
+        }
+        total_size
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -602,6 +681,22 @@ mod tests {
         assert!(size(&strings) > 0);
 
         let empty: Vec<i32> = Vec::new();
+        assert_eq!(size(&empty), 0);
+    }
+
+    #[test]
+    fn test_binary_heap() {
+        let mut h: BinaryHeap<i32> = BinaryHeap::new();
+        h.push(1);
+        h.push(2);
+        h.push(3);
+        assert!(size(&h) > 0);
+
+        let strings: BinaryHeap<String> =
+            BinaryHeap::from(vec![String::from("ab"), String::from("cdef")]);
+        assert!(size(&strings) > 0);
+
+        let empty: BinaryHeap<i32> = BinaryHeap::new();
         assert_eq!(size(&empty), 0);
     }
 
@@ -747,6 +842,67 @@ mod tests {
         let array = FixedSizeListArray::new(field, 2, values, None);
         assert_eq!(size(&array), array.get_array_memory_size());
         assert!(size(&array) > 0);
+    }
+
+    #[test]
+    fn test_array_data_primitive() {
+        use arrow::array::Int32Array;
+
+        let array = Int32Array::from(vec![1, 2, 3, 4]);
+        let data = array.into_data();
+        assert_eq!(size(&data), data.buffers()[0].capacity());
+        assert!(size(&data) > 0);
+    }
+
+    #[test]
+    fn test_array_data_with_nulls() {
+        use arrow::array::Int32Array;
+
+        let array = Int32Array::from(vec![Some(1), None, Some(3)]);
+        let data = array.into_data();
+        let expected = data.buffers()[0].capacity()
+            + data.nulls().unwrap().inner().inner().capacity();
+        assert_eq!(size(&data), expected);
+    }
+
+    #[test]
+    fn test_array_data_avoid_double_accounting() {
+        use arrow::array::Int32Array;
+
+        let array = Int32Array::from(vec![1, 2, 3, 4]);
+        let data = array.into_data();
+
+        let baseline = size(&data);
+        assert!(baseline > 0);
+
+        let mut ctx = DFHeapSizeCtx::default();
+        let first = data.heap_size(&mut ctx);
+        let second = data.heap_size(&mut ctx);
+        assert_eq!(first, baseline);
+        assert_eq!(second, 0);
+    }
+
+    #[test]
+    fn test_array_data_with_children() {
+        use arrow::array::types::Int32Type;
+
+        let array = ListArray::from_iter_primitive::<Int32Type, _, _>(vec![
+            Some(vec![Some(1), Some(2), Some(3)]),
+            Some(vec![Some(4)]),
+        ]);
+        let data = array.into_data();
+        assert_eq!(data.child_data().len(), 1);
+
+        // The parent's own offsets buffer must be counted in addition to the
+        // child array's values buffer.
+        let parent_buffer_size: usize = data.buffers().iter().map(|b| b.capacity()).sum();
+        let child_buffer_size: usize = data.child_data()[0]
+            .buffers()
+            .iter()
+            .map(|b| b.capacity())
+            .sum();
+
+        assert_eq!(size(&data), parent_buffer_size + child_buffer_size);
     }
 
     #[test]

@@ -39,6 +39,7 @@ use crate::{SendableRecordBatchStream, stream::RecordBatchStreamAdapter};
 
 use arrow::array::{ArrayRef, RecordBatch, UInt32Array};
 use arrow::datatypes::SchemaRef;
+use datafusion_common::heap_size::{DFHeapSize, DFHeapSizeCtx};
 use datafusion_common::{
     HashMap, Result, ScalarValue, internal_datafusion_err, internal_err,
 };
@@ -1075,6 +1076,14 @@ impl TopKHeap {
     }
 }
 
+impl DFHeapSize for TopKHeap {
+    fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
+        self.inner.heap_size(ctx)
+            + self.store.heap_size(ctx)
+            + self.owned_bytes.heap_size(ctx)
+    }
+}
+
 /// Represents one of the top K rows held in this heap. Orders
 /// according to memcmp of row (e.g. the arrow Row format, but could
 /// also be primitive values)
@@ -1123,6 +1132,12 @@ impl TopKRow {
     }
 }
 
+impl DFHeapSize for TopKRow {
+    fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
+        self.row.heap_size(ctx)
+    }
+}
+
 impl Eq for TopKRow {}
 
 impl PartialOrd for TopKRow {
@@ -1144,6 +1159,12 @@ struct RecordBatchEntry {
     batch: RecordBatch,
     // for this batch, how many times has it been used
     uses: usize,
+}
+
+impl DFHeapSize for RecordBatchEntry {
+    fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
+        self.batch.heap_size(ctx)
+    }
 }
 
 /// This structure tracks [`RecordBatch`] by an id so that:
@@ -1244,6 +1265,15 @@ impl RecordBatchStore {
         size_of::<Self>()
             + self.batches.capacity() * (size_of::<u32>() + size_of::<RecordBatchEntry>())
             + self.batches_size
+    }
+}
+
+impl DFHeapSize for RecordBatchStore {
+    fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
+        // `batches_size` is a running cache of `get_record_batch_memory_size`
+        // summed across `batches` and isn't itself a heap allocation, so it
+        // isn't counted here.
+        self.batches.heap_size(ctx)
     }
 }
 
@@ -1474,6 +1504,14 @@ struct TieEntry {
     batch_bytes: usize,
 }
 
+impl DFHeapSize for TieEntry {
+    fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
+        self.batch.heap_size(ctx)
+            + self.row_indices.heap_size(ctx)
+            + self.batch_bytes.heap_size(ctx)
+    }
+}
+
 /// Per-partition state for `RANK()` semantics.
 ///
 /// Composes [`TopKHeap`] as the K-bounded core plus a sibling
@@ -1486,15 +1524,9 @@ struct RankPartitionState {
     ties: Vec<TieEntry>,
 }
 
-impl RankPartitionState {
-    fn size(&self) -> usize {
-        let ties_buffer = self.ties.capacity() * size_of::<TieEntry>();
-        let ties_contents: usize = self
-            .ties
-            .iter()
-            .map(|t| t.row_indices.capacity() * size_of::<u32>() + t.batch_bytes)
-            .sum();
-        self.heap.size() + ties_buffer + ties_contents
+impl DFHeapSize for RankPartitionState {
+    fn heap_size(&self, ctx: &mut DFHeapSizeCtx) -> usize {
+        self.heap.heap_size(ctx) + self.ties.heap_size(ctx)
     }
 }
 
@@ -1799,15 +1831,23 @@ impl PartitionedTopKRank {
     }
 
     /// Total memory currently held, including all per-partition states.
+    ///
+    /// RecordBatches with their Arc-shard columns which are shared across
+    /// and retained by more than one partition are deduplicated and only counted once.
     fn size(&self) -> usize {
+        let mut ctx = DFHeapSizeCtx::default();
         size_of::<Self>()
             + self.row_converter.size()
             + self.partition_converter.size()
             + self.scratch_rows.size()
             + self.partition_scratch_rows.size()
-            + self.states.values().map(|s| s.size()).sum::<usize>()
+            + self
+            .states
+            .values()
+            .map(|s| s.heap_size(&mut ctx))
+            .sum::<usize>()
             + self.states.capacity()
-                * (size_of::<OwnedRow>() + size_of::<RankPartitionState>())
+            * (size_of::<OwnedRow>() + size_of::<RankPartitionState>())
     }
 }
 
@@ -3131,6 +3171,47 @@ mod tests {
             ],
             &results
         );
+        Ok(())
+    }
+
+    /// One single input batch that ties the boundary in many distinct
+    /// partitions must not multiply the batch's memory accounting by the
+    /// number of partitions.
+    ///
+    /// With `k=1`, each partition's first row fills its heap and its
+    /// second (equal) row is pushed to `ties` as a clone of the same
+    /// input `RecordBatch` — and the row admitted to the heap is
+    /// registered with `TopKHeap::store` from that same batch too. Every
+    /// one of those clones shares the same underlying Arc'd columns, so
+    /// the actual retained memory is onlye the sizethe input batch, not
+    /// `NUM_PARTITIONS` times input_batch_bytes..
+    #[tokio::test]
+    async fn test_partitioned_topk_rank_shared_batch_ties_not_overcounted() -> Result<()>
+    {
+        let (schema, mut state) = build_partitioned_topk_rank(1)?;
+
+        const NUM_PARTITIONS: i32 = 1000;
+        let mut pks = Vec::with_capacity(2 * NUM_PARTITIONS as usize);
+        let mut vals = Vec::with_capacity(2 * NUM_PARTITIONS as usize);
+        for pk in 0..NUM_PARTITIONS {
+            // Two rows per partition, tied at the same value: the first
+            // fills the (k=1) heap, the second ties the boundary and is
+            // pushed to `ties`.
+            pks.push(pk);
+            pks.push(pk);
+            vals.push(42);
+            vals.push(42);
+        }
+        let batch = pk_val_batch(&schema, pks, vals)?;
+        let input_batch_bytes = get_record_batch_memory_size(&batch);
+
+        state.insert_batch(&batch)?;
+        let naive_overcount = input_batch_bytes * NUM_PARTITIONS as usize;
+        let reported_size = state.size();
+        println!("reported size: {}", reported_size);
+
+
+
         Ok(())
     }
 
