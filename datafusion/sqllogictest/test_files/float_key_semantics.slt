@@ -24,9 +24,9 @@
 # particular when another value follows the zero (multi-column, list and
 # struct keys). `negative_zero.slt` covers the single-column basics.
 #
-# The sqllogictest formatter prints both zeros as `0`, so queries return
-# ids and payload columns, or `1.0 / a` (`-Infinity` vs `Infinity`) where
-# the sign matters.
+# The sqllogictest formatter prints both scalar zeros as `0` (inside lists it
+# prints `-0.0`), so queries return ids and payload columns, or `1.0 / a`
+# (`-Infinity` vs `Infinity`) where the sign matters.
 #
 # Results that are wrong today are recorded as they are, under a
 # `TODO(#NNNN)` comment that gives the correct result. See #26138.
@@ -204,6 +204,22 @@ SELECT ma.id, mb.id FROM ma JOIN mb ON ma.a = mb.a AND ma.b = mb.b;
 statement ok
 set datafusion.optimizer.prefer_hash_join = false;
 
+# The queries below must run as sort-merge joins.
+query TT
+EXPLAIN SELECT ma.id, mb.id FROM ma JOIN mb ON ma.a = mb.a AND ma.b = mb.b;
+----
+logical_plan
+01)Projection: ma.id, mb.id
+02)--Inner Join: ma.a = mb.a, ma.b = mb.b
+03)----TableScan: ma projection=[id, a, b]
+04)----TableScan: mb projection=[id, a, b]
+physical_plan
+01)SortMergeJoinExec: join_type=Inner, on=[(a@1, a@1), (b@2, b@2)], projection=[id@0, id@3]
+02)--SortExec: expr=[a@1 ASC, b@2 ASC], preserve_partitioning=[false]
+03)----DataSourceExec: partitions=1, partition_sizes=[1]
+04)--SortExec: expr=[a@1 ASC, b@2 ASC], preserve_partitioning=[false]
+05)----DataSourceExec: partitions=1, partition_sizes=[1]
+
 query II rowsort
 SELECT lid, rid FROM l JOIN r ON l.a = r.a;
 ----
@@ -262,11 +278,13 @@ set datafusion.optimizer.prefer_hash_join = true;
 ## Aggregation
 #####
 
-# One group for both zeros, with ids 1 and 2.
-query RI rowsort
-SELECT 1.0 / min(a), count(*) FROM t WHERE id IN (1, 2) GROUP BY a;
+# One group for both zeros, with ids 1 and 2. Which zero `min(a)` returns for
+# the group is not checked: both are correct, and PostgreSQL returns the first
+# one it sees.
+query I rowsort
+SELECT count(*) FROM t WHERE id IN (1, 2) GROUP BY a;
 ----
--Infinity 2
+2
 
 query II rowsort
 SELECT count(*), sum(lid) FROM l GROUP BY a, b;

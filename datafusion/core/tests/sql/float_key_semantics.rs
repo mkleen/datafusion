@@ -18,19 +18,20 @@
 //! Checks that float keys holding both `-0.0` and `0.0` give the same results
 //! under every execution strategy, see #26138.
 //!
-//! Each query runs on a float key column under a matrix of settings (hash vs
-//! sort-merge join, partitions, batch sizes, sorted input) and is compared with
+//! Each query runs on a float key column under a matrix of settings (join
+//! strategy, partitions, batch sizes, sorted input) and is compared with
 //! the same query on `ki`, an integer column that maps each float to its place
 //! in SQL order, with `-0.0` and `0.0` mapping to the same integer.
 //! `float_key_semantics.slt` holds the individual cases.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use arrow::array::{Float32Array, Float64Array, Int32Array, RecordBatch};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::util::pretty::pretty_format_batches;
 use datafusion::datasource::MemTable;
+use datafusion::physical_plan::displayable;
 use datafusion::prelude::*;
 use datafusion_common::test_util::batches_to_sort_string;
 
@@ -67,6 +68,44 @@ const QUERIES: &[(&str, bool, &str)] = &[
          ON make_array(t.{k}, t.b) = make_array(u.{k}, u.b)",
     ),
     (
+        "left_join_k_b",
+        false,
+        "SELECT t.id, u.id AS uid FROM t LEFT JOIN u ON t.{k} = u.{k} AND t.b = u.b",
+    ),
+    (
+        "full_join_k_b",
+        false,
+        "SELECT t.id, u.id AS uid FROM t FULL JOIN u ON t.{k} = u.{k} AND t.b = u.b",
+    ),
+    (
+        "semi_join_k_b",
+        false,
+        "SELECT id FROM t WHERE EXISTS \
+         (SELECT 1 FROM u WHERE u.{k} = t.{k} AND u.b = t.b)",
+    ),
+    (
+        "anti_join_k_b",
+        false,
+        "SELECT id FROM t WHERE NOT EXISTS \
+         (SELECT 1 FROM u WHERE u.{k} = t.{k} AND u.b = t.b)",
+    ),
+    (
+        "union",
+        false,
+        "SELECT count(*) AS n FROM (SELECT {k}, b FROM t UNION SELECT {k}, b FROM u)",
+    ),
+    (
+        "intersect",
+        false,
+        "SELECT count(*) AS n FROM \
+         (SELECT {k}, b FROM t INTERSECT SELECT {k}, b FROM u)",
+    ),
+    (
+        "except",
+        false,
+        "SELECT count(*) AS n FROM (SELECT {k}, b FROM t EXCEPT SELECT {k}, b FROM u)",
+    ),
+    (
         "group_by_k_b",
         false,
         "SELECT min(ki) AS c, b, count(*) AS n, sum(id) AS s FROM t GROUP BY {k}, b",
@@ -88,6 +127,11 @@ const QUERIES: &[(&str, bool, &str)] = &[
         false,
         "SELECT count(*) AS n FROM (SELECT DISTINCT {k}, b FROM t)",
     ),
+    (
+        "count_distinct",
+        false,
+        "SELECT b, count(DISTINCT {k}) AS n FROM t GROUP BY b",
+    ),
     ("order_by", true, "SELECT id FROM t ORDER BY {k}, b, id"),
     (
         "order_by_limit",
@@ -104,22 +148,38 @@ const QUERIES: &[(&str, bool, &str)] = &[
         false,
         "SELECT id, row_number() OVER (PARTITION BY {k} ORDER BY id) AS r FROM t",
     ),
+    (
+        "range_frame",
+        false,
+        "SELECT id, sum(b) OVER \
+         (ORDER BY {k} RANGE BETWEEN CURRENT ROW AND CURRENT ROW) AS s FROM t",
+    ),
 ];
 
-/// Queries that are wrong on main today, with the issue tracking each. A fix
+/// Queries that are wrong on main today, with the join strategy they fail
+/// under (`None` for every strategy) and the issue tracking each. A fix
 /// removes its entry; the test fails if the list and the results disagree.
-const KNOWN_WRONG: &[(&str, &str)] = &[
-    ("join_k_b", "#26115"),
-    ("join_list", "#26115"),
-    ("order_by", "#26138"),
-    ("order_by_limit", "#26138"),
-    ("rank", "#26138"),
-    ("row_number_partition", "#25766"),
+const KNOWN_WRONG: &[(&str, Option<Join>, &str)] = &[
+    ("join_k_b", Some(Join::SortMerge), "#26115"),
+    ("join_list", Some(Join::SortMerge), "#26115"),
+    ("left_join_k_b", Some(Join::SortMerge), "#26115"),
+    ("full_join_k_b", Some(Join::SortMerge), "#26115"),
+    ("order_by", None, "#26138"),
+    ("order_by_limit", None, "#26138"),
+    ("rank", None, "#26138"),
+    ("row_number_partition", None, "#25766"),
+    ("range_frame", None, "#26138"),
 ];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Join {
+    Hash,
+    SortMerge,
+}
 
 #[derive(Debug, Clone, Copy)]
 struct Variant {
-    prefer_hash_join: bool,
+    join: Join,
     target_partitions: usize,
     batch_size: usize,
     sorted: bool,
@@ -127,17 +187,18 @@ struct Variant {
 
 fn variants() -> Vec<Variant> {
     let mut variants = vec![];
-    for prefer_hash_join in [true, false] {
-        for target_partitions in [1, 4] {
-            for batch_size in [1, 7, 8192] {
-                for sorted in [false, true] {
-                    variants.push(Variant {
-                        prefer_hash_join,
-                        target_partitions,
-                        batch_size,
-                        sorted,
-                    });
-                }
+    // The planner only picks a sort-merge join with more than one partition.
+    for (join, target_partitions) in
+        [(Join::Hash, 1), (Join::Hash, 4), (Join::SortMerge, 4)]
+    {
+        for batch_size in [1, 7, 8192] {
+            for sorted in [false, true] {
+                variants.push(Variant {
+                    join,
+                    target_partitions,
+                    batch_size,
+                    sorted,
+                });
             }
         }
     }
@@ -155,7 +216,8 @@ fn schema() -> SchemaRef {
 }
 
 /// `(id, k, ki, b)` rows. `stride` spreads the keys differently per table.
-/// With `with_neg_zero = false`, `-0.0` is replaced by `0.0`.
+/// With `with_neg_zero = false`, `-0.0` is replaced by `0.0` (`-0.0 + 0.0`
+/// is `0.0`, every other value is unchanged).
 fn rows(stride: i32, with_neg_zero: bool) -> Vec<(i32, Option<f64>, Option<i32>, i32)> {
     (0..ROWS)
         .map(|id| {
@@ -214,7 +276,7 @@ fn context(variant: Variant, with_neg_zero: bool) -> SessionContext {
         .with_batch_size(variant.batch_size)
         .set_bool(
             "datafusion.optimizer.prefer_hash_join",
-            variant.prefer_hash_join,
+            variant.join == Join::Hash,
         );
     let ctx = SessionContext::new_with_config(config);
     for (name, stride) in [("t", 1), ("u", 5)] {
@@ -243,12 +305,12 @@ async fn run(ctx: &SessionContext, sql: &str, ordered: bool) -> String {
     }
 }
 
-/// Runs every query under every variant and returns the failing queries,
-/// each with the first variant and key column it failed for.
-async fn failing_queries(with_neg_zero: bool) -> BTreeMap<&'static str, String> {
+/// Runs every query under every variant and returns the failing queries and
+/// join strategies, each with the first variant and key column it failed for.
+async fn failing_queries(with_neg_zero: bool) -> BTreeMap<(&'static str, Join), String> {
     let reference = context(
         Variant {
-            prefer_hash_join: true,
+            join: Join::Hash,
             target_partitions: 1,
             batch_size: 8192,
             sorted: false,
@@ -263,19 +325,21 @@ async fn failing_queries(with_neg_zero: bool) -> BTreeMap<&'static str, String> 
     let mut failing = BTreeMap::new();
     for &(name, ordered, sql) in QUERIES {
         let expected = run(&reference, &sql.replace("{k}", "ki"), ordered).await;
-        'query: for key in ["k", "k32"] {
+        for key in ["k", "k32"] {
             let sql = sql.replace("{k}", key);
             for (variant, ctx) in &contexts {
+                if failing.contains_key(&(name, variant.join)) {
+                    continue;
+                }
                 let actual = run(ctx, &sql, ordered).await;
                 if actual != expected {
                     failing.insert(
-                        name,
+                        (name, variant.join),
                         format!(
                             "{name} on `{key}` with {variant:?}\n{sql}\n\
                              expected:\n{expected}\nactual:\n{actual}"
                         ),
                     );
-                    break 'query;
                 }
             }
         }
@@ -286,17 +350,26 @@ async fn failing_queries(with_neg_zero: bool) -> BTreeMap<&'static str, String> 
 #[tokio::test]
 async fn float_key_semantics_match_reference() {
     let failing = failing_queries(true).await;
-    let known: BTreeMap<_, _> = KNOWN_WRONG.iter().copied().collect();
+    let known: BTreeSet<_> = KNOWN_WRONG
+        .iter()
+        .flat_map(|&(name, join, _)| {
+            let joins = match join {
+                Some(join) => vec![join],
+                None => vec![Join::Hash, Join::SortMerge],
+            };
+            joins.into_iter().map(move |join| (name, join))
+        })
+        .collect();
 
     let regressed: Vec<_> = failing
         .iter()
-        .filter(|(name, _)| !known.contains_key(*name))
+        .filter(|(key, _)| !known.contains(*key))
         .map(|(_, details)| details.as_str())
         .collect();
     let fixed: Vec<_> = known
         .iter()
-        .filter(|(name, _)| !failing.contains_key(*name))
-        .map(|(name, issue)| format!("{name} ({issue})"))
+        .filter(|key| !failing.contains_key(*key))
+        .map(|(name, join)| format!("{name} ({join:?})"))
         .collect();
 
     assert!(
@@ -316,4 +389,27 @@ async fn float_key_semantics_self_check() {
         "{}",
         failing.into_values().collect::<Vec<_>>().join("\n\n")
     );
+}
+
+/// Each join strategy in the matrix must plan the join it stands for, or the
+/// matrix stops covering it.
+#[tokio::test]
+async fn float_key_semantics_join_strategies() {
+    let sql = "SELECT t.id, u.id AS uid FROM t JOIN u ON t.k = u.k";
+    for variant in variants() {
+        let ctx = context(variant, true);
+        let plan = ctx
+            .sql(sql)
+            .await
+            .unwrap()
+            .create_physical_plan()
+            .await
+            .unwrap();
+        let plan = displayable(plan.as_ref()).indent(true).to_string();
+        let expected = match variant.join {
+            Join::Hash => "HashJoinExec",
+            Join::SortMerge => "SortMergeJoinExec",
+        };
+        assert!(plan.contains(expected), "{variant:?}\n{plan}");
+    }
 }
